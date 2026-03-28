@@ -11,12 +11,8 @@
 
 use serde::{Deserialize, Serialize};
 
-/// tip5 digest: 5 Goldilocks field elements.
-/// Matches Hoon `noun-digest:tip5 = [@ @ @ @ @]`.
-pub type Tip5Hash = [u64; 5];
-
-/// The zero digest (all limbs zero).
-pub const TIP5_ZERO: Tip5Hash = [0u64; 5];
+// Re-export tip5 types from the standalone crate.
+pub use nockchain_tip5_rs::{Tip5Hash, TIP5_ZERO, ProofNode};
 
 // ---------------------------------------------------------------------------
 // Tier 1: Sovereign Storage
@@ -27,18 +23,6 @@ pub const TIP5_ZERO: Tip5Hash = [0u64; 5];
 pub struct Chunk {
     pub id: u64,
     pub dat: String,
-}
-
-/// Mirror of `+$proof-node  [hash=@ side=?]`
-///
-/// hash: tip5 noun-digest (5 Goldilocks limbs).
-///       Encoded as a flat `@` atom in nouns via digest-to-atom.
-/// side: true  (%.y) = sibling is LEFT  -> hash(sibling, current)
-///       false (%.n) = sibling is RIGHT -> hash(current, sibling)
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ProofNode {
-    pub hash: Tip5Hash,
-    pub side: bool,
 }
 
 // ---------------------------------------------------------------------------

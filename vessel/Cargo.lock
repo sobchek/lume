@@ -3585,6 +3585,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b93853da6d84c2e3c7d730d6473e8817692dd89be387eb01b94d7f108ecb5b8c"
 
 [[package]]
+name = "nock-noun-rs"
+version = "0.1.0"
+dependencies = [
+ "nockapp",
+ "nockvm",
+]
+
+[[package]]
 name = "nockapp"
 version = "0.1.0"
 dependencies = [
@@ -3717,6 +3725,14 @@ dependencies = [
  "serde",
  "thiserror 2.0.18",
  "tracing",
+]
+
+[[package]]
+name = "nockchain-tip5-rs"
+version = "0.1.0"
+dependencies = [
+ "nockchain-math",
+ "serde",
 ]
 
 [[package]]
@@ -6568,9 +6584,11 @@ dependencies = [
  "ibig",
  "kernels-lume",
  "kernels-open-wallet",
+ "nock-noun-rs",
  "nockapp",
  "nockapp-grpc",
  "nockchain-math",
+ "nockchain-tip5-rs",
  "nockchain-types",
  "nockvm",
  "nockvm_macros",
