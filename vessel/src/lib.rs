@@ -12,6 +12,8 @@ pub mod llm;
 pub mod merkle;
 pub mod noun_builder;
 pub mod retrieve;
+pub mod signing;
+pub mod tx_builder;
 pub mod types;
 pub mod wallet;
 pub mod wallet_kernel;

@@ -36,3 +36,4 @@ setup_lab.sh
 protocol/lib/lume-debug.hoon
 protocol/lib/lume-identity.hoon
 protocol/tests/sanity.hoon
+chunk_store.json

@@ -38,10 +38,9 @@ use std::time::Duration;
 use anyhow::{Context, Result};
 use nockapp::noun::slab::{NockJammer, NounSlab};
 use nockchain_types::tx_engine::v1::note::{NoteData, NoteDataEntry};
-use nockvm::noun::{IndirectAtom, Noun, D};
+use nockvm::noun::{IndirectAtom, Noun, D, T};
 
 use crate::merkle::hash_leaf;
-use crate::noun_builder::tip5_to_atom_le_bytes;
 
 use crate::types::*;
 
@@ -61,11 +60,11 @@ pub const KEY_VERSION: &str = "lume-v";
 /// NoteData key: vessel ID.
 pub const KEY_VESSEL_ID: &str = "lume-vid";
 /// NoteData key: Merkle root (32-byte SHA-256).
-pub const KEY_MERKLE_ROOT: &str = "lume-root";
+pub const KEY_MERKLE_ROOT: &str = "lume-rt";
 /// NoteData key: Lume note ID.
 pub const KEY_NOTE_ID: &str = "lume-nid";
 /// NoteData key: manifest hash (32-byte SHA-256 of the serialized manifest).
-pub const KEY_MANIFEST_HASH: &str = "lume-mhash";
+pub const KEY_MANIFEST_HASH: &str = "lume-mh";
 
 // ---------------------------------------------------------------------------
 // SettlementData — the Lume-specific data embedded in a Nockchain Note
@@ -193,27 +192,36 @@ fn jam_u64_entry(key: &str, value: u64) -> NoteDataEntry {
     NoteDataEntry::new(key.to_string(), jammed)
 }
 
-/// Create a NoteDataEntry with a jammed tip5 hash atom value.
+/// Create a NoteDataEntry with a jammed tip5 hash value.
 ///
-/// Converts the `[u64; 5]` digest to a flat atom via `tip5_to_atom_le_bytes`,
-/// matching Hoon's `digest-to-atom:tip5`.
+/// Encodes the `[u64; 5]` digest as a null-terminated list of 5 u64 atoms:
+/// `[limb0 limb1 limb2 limb3 limb4 0]`. Each limb is a Belt-sized value
+/// (< 2^64) which is required by the z-map tree hasher's `leaf_sequence`.
+/// Limbs > DIRECT_MAX (2^63 - 1) are stored as indirect atoms.
 fn jam_tip5_entry(key: &str, hash: &Tip5Hash) -> NoteDataEntry {
-    let le_bytes = tip5_to_atom_le_bytes(hash);
     let mut slab: NounSlab<NockJammer> = NounSlab::new();
-    let noun = bytes_to_noun_slab(&mut slab, &le_bytes);
+    // Build a Nock list: [h[0] [h[1] [h[2] [h[3] [h[4] 0]]]]]
+    let mut noun = D(0); // null terminator
+    for &limb in hash.iter().rev() {
+        let limb_noun = u64_to_noun(&mut slab, limb);
+        noun = T(&mut slab, &[limb_noun, noun]);
+    }
     slab.set_root(noun);
     let jammed = slab.jam();
     NoteDataEntry::new(key.to_string(), jammed)
 }
 
-/// Convert a byte slice to a Nock atom in a NounSlab.
-fn bytes_to_noun_slab(slab: &mut NounSlab<NockJammer>, bytes: &[u8]) -> Noun {
-    if bytes.is_empty() {
-        return D(0);
-    }
-    unsafe {
-        let mut indirect = IndirectAtom::new_raw_bytes_ref(slab, bytes);
-        indirect.normalize_as_atom().as_noun()
+/// Convert a u64 to a Nock noun, using IndirectAtom for values > DIRECT_MAX.
+fn u64_to_noun(slab: &mut NounSlab<NockJammer>, val: u64) -> Noun {
+    const DIRECT_MAX: u64 = (1u64 << 63) - 1;
+    if val <= DIRECT_MAX {
+        D(val)
+    } else {
+        let bytes = val.to_le_bytes();
+        unsafe {
+            let mut indirect = IndirectAtom::new_raw_bytes_ref(slab, &bytes);
+            indirect.normalize_as_atom().as_noun()
+        }
     }
 }
 
@@ -237,50 +245,29 @@ fn find_u64_entry(data: &NoteData, key: &str) -> Result<u64> {
 
 /// Find a NoteDataEntry by key and decode its jammed value as a tip5 hash.
 ///
-/// Reads the atom from NoteData, converts its LE bytes back to a [u64; 5] digest
-/// by reversing the base-p polynomial encoding.
+/// Reads a 5-element Nock list `[limb0 limb1 limb2 limb3 limb4 0]` from the
+/// NoteData entry and reconstructs the `[u64; 5]` digest.
 fn find_hash_entry(data: &NoteData, key: &str) -> Result<Tip5Hash> {
     let entry = find_entry(data, key)?;
     let mut slab: NounSlab<NockJammer> = NounSlab::new();
     slab.cue_into(entry.blob.clone())
         .context("failed to cue NoteDataEntry blob")?;
-    let noun = unsafe { *slab.root() };
-    let atom = noun
-        .as_atom()
-        .map_err(|_| anyhow::anyhow!("expected atom for key '{key}', got cell"))?;
-
-    // Extract LE bytes from the atom and reconstruct tip5 limbs.
-    let ne_bytes = atom.as_ne_bytes();
-    atom_le_bytes_to_tip5(ne_bytes)
-        .ok_or_else(|| anyhow::anyhow!("failed to decode tip5 hash for key '{key}'"))
-}
-
-/// Reverse of `tip5_to_atom_le_bytes`: reconstruct [u64; 5] from LE atom bytes.
-///
-/// Performs base-p decomposition: divide the atom value by PRIME repeatedly.
-fn atom_le_bytes_to_tip5(bytes: &[u8]) -> Option<Tip5Hash> {
-    use nockchain_math::belt::PRIME;
-
-    // Reconstruct the atom value as a vector of u8 (LE) and do base-p decomposition.
-    // We need to divide a multi-byte number by PRIME repeatedly.
-    let mut data: Vec<u8> = bytes.to_vec();
+    let mut noun = unsafe { *slab.root() };
     let mut limbs = [0u64; 5];
-
-    for limb in &mut limbs {
-        // Divide data (LE big integer) by PRIME, get remainder
-        let mut remainder: u128 = 0;
-        for byte in data.iter_mut().rev() {
-            remainder = (remainder << 8) | (*byte as u128);
-            *byte = (remainder / (PRIME as u128)) as u8;
-            remainder %= PRIME as u128;
-        }
-        *limb = remainder as u64;
-        // Trim trailing zeros
-        while data.last() == Some(&0) && data.len() > 1 {
-            data.pop();
-        }
+    for (i, limb) in limbs.iter_mut().enumerate() {
+        let cell = noun
+            .as_cell()
+            .map_err(|_| anyhow::anyhow!("tip5 hash list too short at index {i} for key '{key}'"))?;
+        let atom = cell
+            .head()
+            .as_atom()
+            .map_err(|_| anyhow::anyhow!("tip5 limb {i} is not an atom for key '{key}'"))?;
+        *limb = atom
+            .as_u64()
+            .map_err(|_| anyhow::anyhow!("tip5 limb {i} exceeds u64 for key '{key}'"))?;
+        noun = cell.tail();
     }
-    Some(limbs)
+    Ok(limbs)
 }
 
 /// Find a NoteDataEntry by its key string.
@@ -630,7 +617,7 @@ pub fn compute_simple_first_name(pkh_b58: &str) -> Result<String> {
 }
 
 /// Extract settlement data from a balance response.
-fn extract_settlements_from_balance(
+pub fn extract_settlements_from_balance(
     balance: &nockapp_grpc::pb::common::v2::Balance,
 ) -> Result<Vec<SettlementData>> {
     let mut settlements = Vec::new();
@@ -646,6 +633,241 @@ fn extract_settlements_from_balance(
         }
     }
     Ok(settlements)
+}
+
+// ---------------------------------------------------------------------------
+// SpendableUtxo — extracted UTXO info from protobuf Balance (Phase 3.5.3)
+// ---------------------------------------------------------------------------
+
+/// A spendable UTXO extracted from a protobuf Balance response.
+///
+/// Contains the fields needed to construct a `SettlementTxParams` for
+/// `build_settlement_tx`. Protobuf `BalanceEntry` notes are converted
+/// to this struct for use in the Rust transaction builder.
+#[derive(Debug, Clone)]
+pub struct SpendableUtxo {
+    /// The note's Name (first/last hash pair) — used as `input_name`.
+    pub name: ChainHash,
+    /// The note's last-name hash.
+    pub last_name: ChainHash,
+    /// The note's amount in nicks.
+    pub amount: u64,
+    /// Whether this is a NoteV1 (supports NoteData).
+    pub is_v1: bool,
+    /// Lume settlement data if present in the note's NoteData.
+    pub settlement: Option<SettlementData>,
+}
+
+impl SpendableUtxo {
+    /// The note's first-name hash.
+    pub fn first_name(&self) -> &ChainHash {
+        &self.name
+    }
+
+    /// The note's last-name hash.
+    pub fn last_name(&self) -> &ChainHash {
+        &self.last_name
+    }
+}
+
+/// Extract spendable UTXO info from a protobuf Balance response.
+///
+/// Parses each `BalanceEntry` to extract the note name, amount, and
+/// any embedded Lume settlement data. Skips entries with missing data.
+pub fn extract_spendable_utxos(
+    balance: &nockapp_grpc::pb::common::v2::Balance,
+) -> Vec<SpendableUtxo> {
+    let mut utxos = Vec::new();
+    for entry in &balance.notes {
+        let pb_name = match &entry.name {
+            Some(n) => n,
+            None => continue,
+        };
+        let note = match &entry.note {
+            Some(n) => n,
+            None => continue,
+        };
+
+        // Parse name hashes from protobuf
+        let first_name = match &pb_name.first {
+            Some(h) => chain_hash_from_pb(h),
+            None => continue,
+        };
+        let last_name = match &pb_name.last {
+            Some(h) => chain_hash_from_pb(h),
+            None => continue,
+        };
+
+        // Parse note version and amount
+        use nockapp_grpc::pb::common::v2::note::NoteVersion;
+        let (is_v1, amount, settlement) = match &note.note_version {
+            Some(NoteVersion::V1(v1)) => {
+                let amt = v1.assets.as_ref().map_or(0, |n| n.value);
+                let settlement = v1.note_data.as_ref().and_then(|pd| {
+                    let entries: Vec<nockchain_types::tx_engine::v1::note::NoteDataEntry> = pd
+                        .entries
+                        .iter()
+                        .map(|e| {
+                            nockchain_types::tx_engine::v1::note::NoteDataEntry::new(
+                                e.key.clone(),
+                                e.blob.clone().into(),
+                            )
+                        })
+                        .collect();
+                    if entries.is_empty() {
+                        return None;
+                    }
+                    let nd = NoteData::new(entries);
+                    SettlementData::from_note_data(&nd).ok()
+                });
+                (true, amt, settlement)
+            }
+            Some(NoteVersion::Legacy(v0)) => {
+                let amt = v0.assets.as_ref().map_or(0, |n| n.value);
+                (false, amt, None)
+            }
+            None => continue,
+        };
+
+        utxos.push(SpendableUtxo {
+            name: first_name,
+            last_name,
+            amount,
+            is_v1,
+            settlement,
+        });
+    }
+    utxos
+}
+
+/// Convert a protobuf Hash to a nockchain-types Hash.
+fn chain_hash_from_pb(pb: &nockapp_grpc::pb::common::v1::Hash) -> ChainHash {
+    ChainHash::from_limbs(&[
+        pb.belt_1.as_ref().map_or(0, |b| b.value),
+        pb.belt_2.as_ref().map_or(0, |b| b.value),
+        pb.belt_3.as_ref().map_or(0, |b| b.value),
+        pb.belt_4.as_ref().map_or(0, |b| b.value),
+        pb.belt_5.as_ref().map_or(0, |b| b.value),
+    ])
+}
+
+// ---------------------------------------------------------------------------
+// On-Chain Settlement Confirmation (Phase 3.5.3)
+// ---------------------------------------------------------------------------
+
+/// Result of an on-chain settlement confirmation.
+#[derive(Debug, Clone)]
+pub struct SettlementConfirmation {
+    /// The decoded settlement data from the on-chain note.
+    pub on_chain: SettlementData,
+    /// Whether all fields match the expected settlement.
+    pub verified: bool,
+    /// Human-readable description of any mismatches.
+    pub mismatches: Vec<String>,
+}
+
+impl SettlementData {
+    /// Compare this settlement data against an expected value, reporting mismatches.
+    ///
+    /// Returns a list of human-readable mismatch descriptions. An empty list
+    /// means all fields match.
+    pub fn diff(&self, expected: &SettlementData) -> Vec<String> {
+        let mut mismatches = Vec::new();
+        if self.version != expected.version {
+            mismatches.push(format!(
+                "version: on-chain={}, expected={}",
+                self.version, expected.version
+            ));
+        }
+        if self.vessel_id != expected.vessel_id {
+            mismatches.push(format!(
+                "vessel_id: on-chain={}, expected={}",
+                self.vessel_id, expected.vessel_id
+            ));
+        }
+        if self.note_id != expected.note_id {
+            mismatches.push(format!(
+                "note_id: on-chain={}, expected={}",
+                self.note_id, expected.note_id
+            ));
+        }
+        if self.merkle_root != expected.merkle_root {
+            mismatches.push(format!(
+                "merkle_root: on-chain={}, expected={}",
+                crate::merkle::format_tip5(&self.merkle_root),
+                crate::merkle::format_tip5(&expected.merkle_root),
+            ));
+        }
+        if self.manifest_hash != expected.manifest_hash {
+            mismatches.push(format!(
+                "manifest_hash: on-chain={}, expected={}",
+                crate::merkle::format_tip5(&self.manifest_hash),
+                crate::merkle::format_tip5(&expected.manifest_hash),
+            ));
+        }
+        mismatches
+    }
+}
+
+impl ChainClient {
+    /// Confirm a specific settlement landed on-chain with matching data.
+    ///
+    /// Queries the chain for notes at the given PKH, finds one whose
+    /// `note_id` matches the expected settlement, and verifies all fields.
+    /// Returns `SettlementConfirmation` with match details.
+    ///
+    /// Returns an error if the chain query fails. Returns `Ok(None)` if
+    /// no note with matching `note_id` is found.
+    pub async fn confirm_settlement(
+        &mut self,
+        pkh_b58: &str,
+        coinbase_timelock_min: u64,
+        expected: &SettlementData,
+    ) -> Result<Option<SettlementConfirmation>> {
+        let settlements = self
+            .find_settlement_notes_by_pkh(pkh_b58, coinbase_timelock_min)
+            .await?;
+
+        let on_chain = match settlements.into_iter().find(|s| s.note_id == expected.note_id) {
+            Some(s) => s,
+            None => return Ok(None),
+        };
+
+        let mismatches = on_chain.diff(expected);
+        let verified = mismatches.is_empty();
+
+        Ok(Some(SettlementConfirmation {
+            on_chain,
+            verified,
+            mismatches,
+        }))
+    }
+
+    /// Confirm a settlement by scanning all notes, not just by PKH.
+    ///
+    /// Uses `find_settlement_notes` with the flexible address selector.
+    /// Useful when the exact FirstName computation is uncertain.
+    pub async fn confirm_settlement_by_address(
+        &mut self,
+        address: &str,
+        expected: &SettlementData,
+    ) -> Result<Option<SettlementConfirmation>> {
+        let settlements = self.find_settlement_notes(address).await?;
+
+        let on_chain = match settlements.into_iter().find(|s| s.note_id == expected.note_id) {
+            Some(s) => s,
+            None => return Ok(None),
+        };
+
+        let mismatches = on_chain.diff(expected);
+        let verified = mismatches.is_empty();
+
+        Ok(Some(SettlementConfirmation {
+            on_chain,
+            verified,
+            mismatches,
+        }))
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -912,5 +1134,284 @@ mod tests {
             fn1, fn2,
             "different coinbase timelock values must produce different first_names"
         );
+    }
+
+    // --- Phase 3.5.3 tests: On-Chain Confirmation ---
+
+    #[test]
+    fn settlement_diff_reports_matching() {
+        let data = SettlementData {
+            version: 1,
+            vessel_id: 7,
+            merkle_root: [1, 2, 3, 4, 5],
+            note_id: 42,
+            manifest_hash: [6, 7, 8, 9, 10],
+        };
+        let mismatches = data.diff(&data);
+        assert!(mismatches.is_empty(), "identical data should have no mismatches");
+    }
+
+    #[test]
+    fn settlement_diff_reports_all_mismatches() {
+        let expected = SettlementData {
+            version: 1,
+            vessel_id: 7,
+            merkle_root: [1, 2, 3, 4, 5],
+            note_id: 42,
+            manifest_hash: [6, 7, 8, 9, 10],
+        };
+        let on_chain = SettlementData {
+            version: 1,
+            vessel_id: 99,
+            merkle_root: [10, 20, 30, 40, 50],
+            note_id: 42,
+            manifest_hash: [60, 70, 80, 90, 100],
+        };
+        let mismatches = on_chain.diff(&expected);
+        assert_eq!(mismatches.len(), 3, "should report vessel_id, merkle_root, manifest_hash");
+        assert!(mismatches.iter().any(|m| m.contains("vessel_id")));
+        assert!(mismatches.iter().any(|m| m.contains("merkle_root")));
+        assert!(mismatches.iter().any(|m| m.contains("manifest_hash")));
+    }
+
+    #[test]
+    fn settlement_diff_reports_version_mismatch() {
+        let a = SettlementData {
+            version: 1,
+            vessel_id: 7,
+            merkle_root: [0; 5],
+            note_id: 1,
+            manifest_hash: [0; 5],
+        };
+        let b = SettlementData {
+            version: 2,
+            ..a.clone()
+        };
+        let mismatches = a.diff(&b);
+        assert_eq!(mismatches.len(), 1);
+        assert!(mismatches[0].contains("version"));
+    }
+
+    #[test]
+    fn extract_settlements_from_balance_handles_empty() {
+        let balance = nockapp_grpc::pb::common::v2::Balance {
+            notes: vec![],
+            height: None,
+            block_id: None,
+            page: None,
+        };
+        let settlements = extract_settlements_from_balance(&balance).unwrap();
+        assert!(settlements.is_empty());
+    }
+
+    #[test]
+    fn extract_spendable_utxos_handles_empty() {
+        let balance = nockapp_grpc::pb::common::v2::Balance {
+            notes: vec![],
+            height: None,
+            block_id: None,
+            page: None,
+        };
+        let utxos = extract_spendable_utxos(&balance);
+        assert!(utxos.is_empty());
+    }
+
+    #[test]
+    fn settlement_encode_decode_via_synthetic_proto_balance() {
+        // Build settlement data
+        let data = SettlementData {
+            version: 1,
+            vessel_id: 7,
+            merkle_root: [100, 200, 300, 400, 500],
+            note_id: 42,
+            manifest_hash: [10, 20, 30, 40, 50],
+        };
+
+        // Encode to NoteData (JAM'd entries)
+        let note_data = data.to_note_data();
+
+        // Convert NoteData entries to protobuf NoteDataEntry format
+        let pb_entries: Vec<nockapp_grpc::pb::common::v2::NoteDataEntry> = note_data
+            .iter()
+            .map(|e| nockapp_grpc::pb::common::v2::NoteDataEntry {
+                key: e.key.clone(),
+                blob: e.blob.to_vec(),
+            })
+            .collect();
+
+        // Build a synthetic protobuf Balance with a V1 note containing our entries
+        let pb_note = nockapp_grpc::pb::common::v2::Note {
+            note_version: Some(
+                nockapp_grpc::pb::common::v2::note::NoteVersion::V1(
+                    nockapp_grpc::pb::common::v2::NoteV1 {
+                        version: Some(nockapp_grpc::pb::common::v1::NoteVersion { value: 1 }),
+                        origin_page: Some(nockapp_grpc::pb::common::v1::BlockHeight { value: 5 }),
+                        name: Some(nockapp_grpc::pb::common::v1::Name {
+                            first: Some(nockapp_grpc::pb::common::v1::Hash {
+                                belt_1: Some(nockapp_grpc::pb::common::v1::Belt { value: 1 }),
+                                belt_2: Some(nockapp_grpc::pb::common::v1::Belt { value: 2 }),
+                                belt_3: Some(nockapp_grpc::pb::common::v1::Belt { value: 3 }),
+                                belt_4: Some(nockapp_grpc::pb::common::v1::Belt { value: 4 }),
+                                belt_5: Some(nockapp_grpc::pb::common::v1::Belt { value: 5 }),
+                            }),
+                            last: Some(nockapp_grpc::pb::common::v1::Hash {
+                                belt_1: Some(nockapp_grpc::pb::common::v1::Belt { value: 10 }),
+                                belt_2: Some(nockapp_grpc::pb::common::v1::Belt { value: 20 }),
+                                belt_3: Some(nockapp_grpc::pb::common::v1::Belt { value: 30 }),
+                                belt_4: Some(nockapp_grpc::pb::common::v1::Belt { value: 40 }),
+                                belt_5: Some(nockapp_grpc::pb::common::v1::Belt { value: 50 }),
+                            }),
+                        }),
+                        note_data: Some(nockapp_grpc::pb::common::v2::NoteData {
+                            entries: pb_entries,
+                        }),
+                        assets: Some(nockapp_grpc::pb::common::v1::Nicks { value: 97_000 }),
+                    },
+                ),
+            ),
+        };
+
+        let pb_balance_entry = nockapp_grpc::pb::common::v2::BalanceEntry {
+            name: Some(nockapp_grpc::pb::common::v1::Name {
+                first: Some(nockapp_grpc::pb::common::v1::Hash {
+                    belt_1: Some(nockapp_grpc::pb::common::v1::Belt { value: 1 }),
+                    belt_2: Some(nockapp_grpc::pb::common::v1::Belt { value: 2 }),
+                    belt_3: Some(nockapp_grpc::pb::common::v1::Belt { value: 3 }),
+                    belt_4: Some(nockapp_grpc::pb::common::v1::Belt { value: 4 }),
+                    belt_5: Some(nockapp_grpc::pb::common::v1::Belt { value: 5 }),
+                }),
+                last: Some(nockapp_grpc::pb::common::v1::Hash {
+                    belt_1: Some(nockapp_grpc::pb::common::v1::Belt { value: 10 }),
+                    belt_2: Some(nockapp_grpc::pb::common::v1::Belt { value: 20 }),
+                    belt_3: Some(nockapp_grpc::pb::common::v1::Belt { value: 30 }),
+                    belt_4: Some(nockapp_grpc::pb::common::v1::Belt { value: 40 }),
+                    belt_5: Some(nockapp_grpc::pb::common::v1::Belt { value: 50 }),
+                }),
+            }),
+            note: Some(pb_note),
+        };
+
+        let pb_balance = nockapp_grpc::pb::common::v2::Balance {
+            notes: vec![pb_balance_entry],
+            height: Some(nockapp_grpc::pb::common::v1::BlockHeight { value: 10 }),
+            block_id: None,
+            page: None,
+        };
+
+        // --- Test extract_settlements_from_balance ---
+        let settlements = extract_settlements_from_balance(&pb_balance).unwrap();
+        assert_eq!(settlements.len(), 1, "should find exactly 1 Lume settlement");
+        assert_eq!(settlements[0], data, "decoded settlement must match original");
+
+        // --- Test extract_spendable_utxos ---
+        let utxos = extract_spendable_utxos(&pb_balance);
+        assert_eq!(utxos.len(), 1, "should find exactly 1 UTXO");
+        assert!(utxos[0].is_v1, "must be v1 note");
+        assert_eq!(utxos[0].amount, 97_000, "amount must match");
+        assert!(utxos[0].settlement.is_some(), "must decode Lume settlement");
+        assert_eq!(utxos[0].settlement.as_ref().unwrap(), &data);
+
+        // --- Test SettlementData::diff ---
+        let mismatches = settlements[0].diff(&data);
+        assert!(mismatches.is_empty(), "matching data should have no diffs");
+    }
+
+    #[test]
+    fn extract_spendable_utxos_skips_non_lume_notes() {
+        // A V1 note with non-Lume NoteData entries
+        let pb_note = nockapp_grpc::pb::common::v2::Note {
+            note_version: Some(
+                nockapp_grpc::pb::common::v2::note::NoteVersion::V1(
+                    nockapp_grpc::pb::common::v2::NoteV1 {
+                        version: Some(nockapp_grpc::pb::common::v1::NoteVersion { value: 1 }),
+                        origin_page: Some(nockapp_grpc::pb::common::v1::BlockHeight { value: 1 }),
+                        name: Some(nockapp_grpc::pb::common::v1::Name {
+                            first: Some(nockapp_grpc::pb::common::v1::Hash {
+                                belt_1: Some(nockapp_grpc::pb::common::v1::Belt { value: 1 }),
+                                belt_2: Some(nockapp_grpc::pb::common::v1::Belt { value: 0 }),
+                                belt_3: Some(nockapp_grpc::pb::common::v1::Belt { value: 0 }),
+                                belt_4: Some(nockapp_grpc::pb::common::v1::Belt { value: 0 }),
+                                belt_5: Some(nockapp_grpc::pb::common::v1::Belt { value: 0 }),
+                            }),
+                            last: Some(nockapp_grpc::pb::common::v1::Hash {
+                                belt_1: Some(nockapp_grpc::pb::common::v1::Belt { value: 2 }),
+                                belt_2: Some(nockapp_grpc::pb::common::v1::Belt { value: 0 }),
+                                belt_3: Some(nockapp_grpc::pb::common::v1::Belt { value: 0 }),
+                                belt_4: Some(nockapp_grpc::pb::common::v1::Belt { value: 0 }),
+                                belt_5: Some(nockapp_grpc::pb::common::v1::Belt { value: 0 }),
+                            }),
+                        }),
+                        note_data: Some(nockapp_grpc::pb::common::v2::NoteData {
+                            entries: vec![nockapp_grpc::pb::common::v2::NoteDataEntry {
+                                key: "lock".to_string(),
+                                blob: vec![1, 2, 3],
+                            }],
+                        }),
+                        assets: Some(nockapp_grpc::pb::common::v1::Nicks { value: 50_000 }),
+                    },
+                ),
+            ),
+        };
+
+        let pb_balance = nockapp_grpc::pb::common::v2::Balance {
+            notes: vec![nockapp_grpc::pb::common::v2::BalanceEntry {
+                name: Some(nockapp_grpc::pb::common::v1::Name {
+                    first: Some(nockapp_grpc::pb::common::v1::Hash {
+                        belt_1: Some(nockapp_grpc::pb::common::v1::Belt { value: 1 }),
+                        belt_2: Some(nockapp_grpc::pb::common::v1::Belt { value: 0 }),
+                        belt_3: Some(nockapp_grpc::pb::common::v1::Belt { value: 0 }),
+                        belt_4: Some(nockapp_grpc::pb::common::v1::Belt { value: 0 }),
+                        belt_5: Some(nockapp_grpc::pb::common::v1::Belt { value: 0 }),
+                    }),
+                    last: Some(nockapp_grpc::pb::common::v1::Hash {
+                        belt_1: Some(nockapp_grpc::pb::common::v1::Belt { value: 2 }),
+                        belt_2: Some(nockapp_grpc::pb::common::v1::Belt { value: 0 }),
+                        belt_3: Some(nockapp_grpc::pb::common::v1::Belt { value: 0 }),
+                        belt_4: Some(nockapp_grpc::pb::common::v1::Belt { value: 0 }),
+                        belt_5: Some(nockapp_grpc::pb::common::v1::Belt { value: 0 }),
+                    }),
+                }),
+                note: Some(pb_note),
+            }],
+            height: None,
+            block_id: None,
+            page: None,
+        };
+
+        // extract_settlements should find 0 (non-Lume note)
+        let settlements = extract_settlements_from_balance(&pb_balance).unwrap();
+        assert!(settlements.is_empty(), "non-Lume notes should be skipped");
+
+        // extract_spendable_utxos should find 1 UTXO with no settlement
+        let utxos = extract_spendable_utxos(&pb_balance);
+        assert_eq!(utxos.len(), 1);
+        assert!(utxos[0].settlement.is_none(), "non-Lume note should have no settlement");
+        assert_eq!(utxos[0].amount, 50_000);
+    }
+
+    #[test]
+    fn chain_hash_from_pb_converts_correctly() {
+        let pb_hash = nockapp_grpc::pb::common::v1::Hash {
+            belt_1: Some(nockapp_grpc::pb::common::v1::Belt { value: 100 }),
+            belt_2: Some(nockapp_grpc::pb::common::v1::Belt { value: 200 }),
+            belt_3: Some(nockapp_grpc::pb::common::v1::Belt { value: 300 }),
+            belt_4: Some(nockapp_grpc::pb::common::v1::Belt { value: 400 }),
+            belt_5: Some(nockapp_grpc::pb::common::v1::Belt { value: 500 }),
+        };
+        let hash = chain_hash_from_pb(&pb_hash);
+        assert_eq!(hash.to_array(), [100, 200, 300, 400, 500]);
+    }
+
+    #[test]
+    fn chain_hash_from_pb_handles_missing_belts() {
+        let pb_hash = nockapp_grpc::pb::common::v1::Hash {
+            belt_1: Some(nockapp_grpc::pb::common::v1::Belt { value: 42 }),
+            belt_2: None,
+            belt_3: None,
+            belt_4: None,
+            belt_5: None,
+        };
+        let hash = chain_hash_from_pb(&pb_hash);
+        assert_eq!(hash.to_array(), [42, 0, 0, 0, 0]);
     }
 }

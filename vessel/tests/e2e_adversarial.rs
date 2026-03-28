@@ -546,6 +546,10 @@ mod http_api {
             llm: Box::new(StubProvider),
             retriever: Box::new(KeywordRetriever),
             note_counter: 0,
+            chain_endpoint: None,
+            signing_key: None,
+            coinbase_timelock_min: 1,
+            tx_fee: 3000,
         }));
 
         (api::router(state.clone()), state, tmp)

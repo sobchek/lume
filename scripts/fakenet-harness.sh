@@ -44,7 +44,9 @@ fi
 NOCKCHAIN_GRPC_ADDR="${NOCKCHAIN_GRPC_ADDR:-127.0.0.1:9090}"
 WALLET_GRPC_ADDR="${WALLET_GRPC_ADDR:-http://localhost:5555}"
 LUME_API_PORT="${LUME_API_PORT:-3000}"
-MINING_PKH="${MINING_PKH:-9yPePjfWAdUnzaQKyxcRXKRa5PpUzKKEwtpECBZsUYt9Jd7egSDEWoV}"
+# Demo signing key PKH — derived from vessel::signing::demo_signing_key()
+# (sk[0]=12345, sk[1]=67890). This ensures the vessel can spend mined coinbase UTXOs.
+MINING_PKH="${MINING_PKH:-5pJiNWqnouxku6SvGU6XZhu98nHH5VFMaNJ4r1vtHxPJ5sHurHBfYnk}"
 FAKENET_POW_LEN="${FAKENET_POW_LEN:-2}"
 FAKENET_LOG_DIFFICULTY="${FAKENET_LOG_DIFFICULTY:-1}"
 

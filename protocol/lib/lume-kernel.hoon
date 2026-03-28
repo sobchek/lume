@@ -5,8 +5,12 @@
 ::    [%register vessel=@ root=@]  — register a vessel root
 ::    [%settle payload=@]          — verify manifest + settle note
 ::    [%prove  payload=@]          — settle + generate STARK proof
+::    [%sig-hash seeds-jam=@ fee=@] — compute sig-hash from seeds + fee
+::    [%tx-id spends-jam=@]        — compute tx-id from spends
 ::
 ::  The settle/prove payload is a jammed settlement-payload atom.
+::  The sig-hash/tx-id pokes use Hoon's tx-engine hashable infrastructure
+::  to produce byte-exact hashes for Rust-assembled transactions.
 ::
 ::  Security hardening:
 ::    - %settle/%prove reject unregistered roots (must %register first)
@@ -18,6 +22,7 @@
 /+  *lume-logic
 /+  *lume-prover
 /=  *  /common/wrapper
+/=  txv1  /common/tx-engine-1
 ::
 =>
 |%
@@ -37,6 +42,8 @@
   $%  [%register vessel=@ root=@]
       [%settle payload=@]
       [%prove payload=@]
+      [%sig-hash seeds-jam=@ fee=@]
+      [%tx-id spends-jam=@]
   ==
 --
 |%
@@ -124,6 +131,32 @@
       :_  state(settled new-settled)
       ^-  (list effect)
       ~[[result-note proof]]
+      ::
+      ::  %sig-hash — compute sig-hash from jammed seeds + fee
+      ::    Uses tx-engine's hashable infrastructure for byte-exact hashes.
+      ::    Stateless: does not modify kernel state.
+      ::
+        %sig-hash
+      =/  sds=seeds:txv1  ;;(seeds:txv1 (cue seeds-jam.u.act))
+      =/  result=hash:txv1
+        %-  hash-hashable:tip5
+        [(sig-hashable:seeds:txv1 sds) leaf+fee.u.act]
+      :_  state
+      ^-  (list effect)
+      ~[[%sig-hash result]]
+      ::
+      ::  %tx-id — compute tx-id from jammed spends
+      ::    Uses tx-engine's hashable infrastructure for byte-exact hashes.
+      ::    Stateless: does not modify kernel state.
+      ::
+        %tx-id
+      =/  sps=spends:txv1  ;;(spends:txv1 (cue spends-jam.u.act))
+      =/  result=tx-id:txv1
+        %-  hash-hashable:tip5
+        [leaf+%1 (hashable:spends:txv1 sps)]
+      :_  state
+      ^-  (list effect)
+      ~[[%tx-id result]]
     ==
   --
 --

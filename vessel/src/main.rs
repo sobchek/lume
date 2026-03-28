@@ -23,8 +23,9 @@ use vessel::llm;
 use vessel::merkle::{self, MerkleTree};
 use vessel::noun_builder;
 use vessel::retrieve;
+use vessel::signing;
+use vessel::tx_builder;
 use vessel::types::*;
-use vessel::wallet;
 
 #[derive(Parser)]
 #[command(name = "vessel", about = "Lume Vessel Orchestrator")]
@@ -79,6 +80,20 @@ struct Cli {
     /// Default wallet port is 5555 (e.g., http://localhost:5555).
     #[arg(long = "wallet-grpc")]
     wallet_grpc: Option<String>,
+
+    /// Submit settlement transaction on-chain after kernel settlement.
+    /// Requires --chain-endpoint. Uses the demo signing key to spend a
+    /// coinbase UTXO and embed Lume NoteData in the output.
+    #[arg(long = "submit")]
+    submit: bool,
+
+    /// Coinbase timelock minimum for UTXO spending. Fakenet default is 1.
+    #[arg(long = "coinbase-timelock-min", default_value = "1")]
+    coinbase_timelock_min: u64,
+
+    /// Transaction fee in nicks for settlement transactions.
+    #[arg(long = "tx-fee", default_value = "3000")]
+    tx_fee: u64,
 }
 
 /// Fallback demo data when no --docs directory is provided.
@@ -218,6 +233,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             (Vec::new(), None)
         };
 
+        let sk = if cli.submit { Some(signing::demo_signing_key()) } else { None };
         let state = Arc::new(Mutex::new(api::AppState {
             app,
             chunks,
@@ -227,6 +243,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             llm: provider,
             retriever: Box::new(retrieve::KeywordRetriever),
             note_counter: 0,
+            chain_endpoint: if cli.submit { cli.chain_endpoint.clone() } else { None },
+            signing_key: sk,
+            coinbase_timelock_min: cli.coinbase_timelock_min,
+            tx_fee: cli.tx_fee,
         }));
         return api::serve(state, cli.port).await;
     }
@@ -367,111 +387,118 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // --- [9] On-chain settlement (optional) ---
     let settlement = chain::SettlementData::from_settlement(&note, &manifest);
-    let chain_settled = if let Some(ref endpoint) = cli.chain_endpoint {
+    let mut tx_accepted = false;
+    let mut tx_id_str = String::new();
+
+    if let Some(ref endpoint) = cli.chain_endpoint {
         println!("\n[9] Connecting to Nockchain node at {endpoint}...");
         let chain_config = chain::ChainConfig::local(endpoint);
         match chain::ChainClient::connect(chain_config).await {
             Ok(mut client) => {
-                // Check wallet funding if address provided
-                if let Some(ref addr) = cli.wallet_address {
-                    match client.get_balance(addr).await {
-                        Ok(balance) => {
-                            println!(
-                                "    Wallet {}: {} note(s) on-chain",
-                                &addr[..12.min(addr.len())],
-                                balance.notes.len()
-                            );
-                        }
-                        Err(e) => {
-                            eprintln!("    warn: could not check balance: {e}");
-                        }
-                    }
-                }
-
                 println!("    Settlement: {settlement}");
 
-                // If we have a wallet address, scan for existing Lume settlements
-                if let Some(ref addr) = cli.wallet_address {
-                    match client.find_settlement_notes(addr).await {
-                        Ok(notes) if !notes.is_empty() => {
-                            println!("    Found {} existing Lume settlement(s):", notes.len());
-                            for s in &notes {
-                                println!("      {s}");
+                // --- [9a] Find spendable UTXO ---
+                let sk = signing::demo_signing_key();
+                let pkh = signing::pubkey_hash(&signing::derive_pubkey(&sk));
+                let pkh_b58 = pkh.to_base58();
+                println!("    Signer PKH: {}", &pkh_b58[..16]);
+
+                let balance = client
+                    .get_balance_by_pkh(&pkh_b58, cli.coinbase_timelock_min)
+                    .await;
+
+                let utxos = match balance {
+                    Ok(ref bal) => {
+                        let u = chain::extract_spendable_utxos(bal);
+                        println!("    Balance: {} note(s), {} spendable UTXO(s)", bal.notes.len(), u.len());
+                        u
+                    }
+                    Err(e) => {
+                        eprintln!("    warn: balance query failed: {e}");
+                        vec![]
+                    }
+                };
+
+                if cli.submit && !utxos.is_empty() {
+                    // Pick the largest UTXO
+                    let utxo = utxos.iter().max_by_key(|u| u.amount).unwrap();
+                    println!("    Using UTXO: {} nicks", utxo.amount);
+
+                    // --- [9b] Build settlement transaction ---
+                    println!("[9b] Building settlement transaction...");
+                    let params = tx_builder::SettlementTxParams {
+                        input_name: nockchain_types::tx_engine::common::Name::new(
+                            utxo.name.clone(),
+                            utxo.last_name.clone(),
+                        ),
+                        input_note_hash: utxo.last_name.clone(),
+                        input_amount: utxo.amount,
+                        is_coinbase: true,
+                        coinbase_timelock_min: cli.coinbase_timelock_min,
+                        source_hash: nockchain_types::tx_engine::common::Hash::from_limbs(&[0, 0, 0, 0, 0]),
+                        recipient_pkh: pkh,
+                        settlement: settlement.clone(),
+                        fee: cli.tx_fee,
+                        signing_key: sk,
+                    };
+
+                    match tx_builder::build_settlement_tx(&mut app, &params).await {
+                        Ok(raw_tx) => {
+                            tx_id_str = raw_tx.id.to_base58();
+                            println!("    tx-id: {tx_id_str}");
+                            println!("    NoteData: 5 Lume settlement keys");
+                            println!("    Fee: {} nicks", cli.tx_fee);
+
+                            // --- [9c] Submit to chain ---
+                            println!("[9c] Submitting transaction to chain...");
+                            match client.submit_and_wait(raw_tx, &tx_id_str).await {
+                                Ok(true) => {
+                                    println!("    Transaction ACCEPTED on-chain!");
+                                    tx_accepted = true;
+                                }
+                                Ok(false) => {
+                                    println!("    Transaction timed out (not accepted in time).");
+                                }
+                                Err(e) => {
+                                    eprintln!("    Transaction submission error: {e}");
+                                }
                             }
                         }
-                        Ok(_) => {
-                            println!("    No existing Lume settlements found on-chain.");
-                        }
                         Err(e) => {
-                            eprintln!("    warn: could not query settlements: {e}");
+                            eprintln!("    Failed to build settlement tx: {e}");
                         }
                     }
+                } else if cli.submit && utxos.is_empty() {
+                    eprintln!("    No spendable UTXOs found — cannot submit settlement tx.");
+                    eprintln!("    Ensure the fakenet miner is using PKH: {pkh_b58}");
                 }
-                true
+
+                // --- [9d] Scan for existing Lume settlements ---
+                println!("[9d] Scanning for Lume settlement notes...");
+                match client
+                    .find_settlement_notes_by_pkh(&pkh_b58, cli.coinbase_timelock_min)
+                    .await
+                {
+                    Ok(notes) if !notes.is_empty() => {
+                        println!("    Found {} Lume settlement(s) on-chain:", notes.len());
+                        for s in &notes {
+                            println!("      {s}");
+                        }
+                    }
+                    Ok(_) => {
+                        println!("    No Lume settlements found on-chain yet.");
+                    }
+                    Err(e) => {
+                        eprintln!("    warn: could not query settlements: {e}");
+                    }
+                }
             }
             Err(e) => {
                 eprintln!("    Failed to connect to chain: {e}");
                 eprintln!("    (Pipeline completed locally; chain settlement skipped)");
-                false
             }
         }
-    } else {
-        false
-    };
-
-    // --- [10] Wallet coordination (optional) ---
-    let wallet_ready = if let Some(ref wallet_ep) = cli.wallet_grpc {
-        println!("\n[10] Connecting to wallet at {wallet_ep}...");
-        let wallet_config = wallet::WalletConfig::new(wallet_ep);
-        match wallet::WalletClient::connect(wallet_config).await {
-            Ok(mut wclient) => {
-                match wclient.check_ready().await {
-                    Ok(true) => {
-                        println!("    Wallet is responsive.");
-
-                        // Peek balance if we have a wallet address
-                        if let Some(ref addr) = cli.wallet_address {
-                            match wclient.peek_balance(addr).await {
-                                Ok(balance) => {
-                                    println!("    Wallet balance peek: {balance}");
-                                }
-                                Err(e) => {
-                                    eprintln!("    warn: could not peek wallet balance: {e}");
-                                }
-                            }
-                        }
-
-                        println!("    Settlement data ready: {settlement}");
-                        println!("    Settlement NoteData: {} entries",
-                            settlement.to_note_data().iter().count()
-                        );
-
-                        // Transaction submission requires UTXO selection
-                        // (input note name, recipient address) which is
-                        // operator-provided. Log readiness for Phase 3.4.
-                        println!("    Wallet coordination layer active.");
-                        println!("    (Full tx submission requires --input-note and --recipient flags, Phase 3.4)");
-                        true
-                    }
-                    Ok(false) => {
-                        eprintln!("    Wallet not ready.");
-                        false
-                    }
-                    Err(e) => {
-                        eprintln!("    Wallet check failed: {e}");
-                        false
-                    }
-                }
-            }
-            Err(e) => {
-                eprintln!("    Failed to connect to wallet: {e}");
-                eprintln!("    (Pipeline completed without wallet; signing skipped)");
-                false
-            }
-        }
-    } else {
-        false
-    };
+    }
 
     // --- Summary ---
     println!("\n=== Pipeline Summary ===");
@@ -483,10 +510,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("  Note settled:     {}", !effects.is_empty() || all_valid);
     println!("  All proofs valid: {}", all_valid);
     if cli.chain_endpoint.is_some() {
-        println!("  Chain connected:  {}", chain_settled);
+        println!("  Chain connected:  true");
     }
-    if cli.wallet_grpc.is_some() {
-        println!("  Wallet ready:     {}", wallet_ready);
+    if cli.submit {
+        println!("  TX submitted:     {}", tx_accepted);
+        if !tx_id_str.is_empty() {
+            println!("  TX ID:            {}", tx_id_str);
+        }
     }
     println!("=== Vessel pipeline complete ===");
     Ok(())

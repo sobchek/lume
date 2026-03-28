@@ -34,10 +34,15 @@ use nockapp::NockApp;
 use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
 
+use nockchain_math::belt::Belt;
+
+use crate::chain;
 use crate::llm::{self, LlmProvider};
 use crate::merkle::MerkleTree;
 use crate::noun_builder;
 use crate::retrieve::Retriever;
+use crate::signing;
+use crate::tx_builder;
 use crate::types::*;
 
 // ---------------------------------------------------------------------------
@@ -58,6 +63,14 @@ pub struct AppState {
     pub retriever: Box<dyn Retriever + Send + Sync>,
     /// Count of settled notes (incremented per successful /query).
     pub note_counter: u64,
+    /// Chain endpoint for on-chain settlement submission.
+    pub chain_endpoint: Option<String>,
+    /// Signing key for settlement transactions.
+    pub signing_key: Option<[Belt; 8]>,
+    /// Coinbase timelock minimum.
+    pub coinbase_timelock_min: u64,
+    /// Transaction fee.
+    pub tx_fee: u64,
 }
 
 pub type SharedState = Arc<Mutex<AppState>>;
@@ -101,6 +114,12 @@ pub struct QueryResponse {
     pub settled: bool,
     pub merkle_root: String,
     pub effects_count: usize,
+    /// Transaction ID if submitted on-chain (base58).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tx_id: Option<String>,
+    /// Whether the transaction was accepted on-chain.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tx_accepted: Option<bool>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -344,6 +363,62 @@ async fn query_handler(
 
     let root_hex = crate::merkle::format_tip5(&root);
 
+    // --- On-chain submission (if chain endpoint + signing key configured) ---
+    let mut tx_id: Option<String> = None;
+    let mut tx_accepted: Option<bool> = None;
+
+    if let (Some(endpoint), Some(sk)) = (&st.chain_endpoint, &st.signing_key) {
+        let note_for_settlement = Note {
+            id: note_id,
+            vessel: st.vessel_id,
+            root,
+            state: NoteState::Settled,
+        };
+        let settlement = chain::SettlementData::from_settlement(&note_for_settlement, &manifest);
+        let pkh = signing::pubkey_hash(&signing::derive_pubkey(sk));
+        let pkh_b58 = pkh.to_base58();
+
+        let chain_config = chain::ChainConfig::local(endpoint);
+        if let Ok(mut client) = chain::ChainClient::connect(chain_config).await {
+            let balance = client
+                .get_balance_by_pkh(&pkh_b58, st.coinbase_timelock_min)
+                .await;
+
+            if let Ok(ref bal) = balance {
+                let utxos = chain::extract_spendable_utxos(bal);
+                if let Some(utxo) = utxos.iter().max_by_key(|u| u.amount) {
+                    let params = tx_builder::SettlementTxParams {
+                        input_name: nockchain_types::tx_engine::common::Name::new(
+                            utxo.name.clone(),
+                            utxo.last_name.clone(),
+                        ),
+                        input_note_hash: utxo.last_name.clone(),
+                        input_amount: utxo.amount,
+                        is_coinbase: true,
+                        coinbase_timelock_min: st.coinbase_timelock_min,
+                        source_hash: nockchain_types::tx_engine::common::Hash::from_limbs(
+                            &[0, 0, 0, 0, 0],
+                        ),
+                        recipient_pkh: pkh,
+                        settlement,
+                        fee: st.tx_fee,
+                        signing_key: *sk,
+                    };
+
+                    if let Ok(raw_tx) = tx_builder::build_settlement_tx(&mut st.app, &params).await
+                    {
+                        let id_b58 = raw_tx.id.to_base58();
+                        tx_id = Some(id_b58.clone());
+                        match client.submit_and_wait(raw_tx, &id_b58).await {
+                            Ok(accepted) => tx_accepted = Some(accepted),
+                            Err(_) => tx_accepted = Some(false),
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     Ok(Json(QueryResponse {
         query: req.query,
         chunks_retrieved: hits.len(),
@@ -354,6 +429,8 @@ async fn query_handler(
         settled: true,
         merkle_root: root_hex,
         effects_count: effects.len(),
+        tx_id,
+        tx_accepted,
     }))
 }
 
@@ -407,6 +484,10 @@ mod tests {
             llm: Box::new(llm::StubProvider),
             retriever: Box::new(KeywordRetriever),
             note_counter: 0,
+            chain_endpoint: None,
+            signing_key: None,
+            coinbase_timelock_min: 1,
+            tx_fee: 3000,
         }))
     }
 

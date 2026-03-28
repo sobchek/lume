@@ -17,6 +17,7 @@
 
 use std::future::Future;
 use std::pin::Pin;
+use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
@@ -99,7 +100,11 @@ struct OllamaResponse {
     response: String,
 }
 
-/// LLM provider backed by a local Ollama instance.
+/// Default generation timeout (5 minutes). Remote LLMs (e.g. RunPod) may
+/// need significant time for large prompts.
+const DEFAULT_GENERATE_TIMEOUT: Duration = Duration::from_secs(300);
+
+/// LLM provider backed by an Ollama instance (local or remote).
 ///
 /// Default endpoint: `http://localhost:11434`
 /// Default model: `llama3.2`
@@ -115,10 +120,17 @@ pub struct OllamaProvider {
 
 impl OllamaProvider {
     pub fn new(base_url: &str, model: &str) -> Self {
+        Self::with_timeout(base_url, model, DEFAULT_GENERATE_TIMEOUT)
+    }
+
+    pub fn with_timeout(base_url: &str, model: &str, timeout: Duration) -> Self {
         Self {
             base_url: base_url.trim_end_matches('/').to_string(),
             model: model.to_string(),
-            client: reqwest::Client::new(),
+            client: reqwest::Client::builder()
+                .timeout(timeout)
+                .build()
+                .expect("reqwest client must build"),
         }
     }
 }
