@@ -183,6 +183,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // --- Boot the NockApp kernel with STARK prover jets ---
     println!("[0] Booting Vesl NockApp kernel...");
+    let stack_size = cli.boot.stack_size.clone();
     let prover_hot_state = zkvm_jetpack::hot::produce_prover_hot_state();
     let mut app: NockApp = boot::setup(
         kernels_vesl::KERNEL,
@@ -194,6 +195,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     .await?;
     println!("    Kernel booted ({} bytes JAM, {} prover jets)",
         kernels_vesl::KERNEL.len(), prover_hot_state.len());
+
+    if matches!(stack_size, boot::NockStackSize::Tiny | boot::NockStackSize::Small | boot::NockStackSize::Normal | boot::NockStackSize::Medium) {
+        eprintln!("WARNING: Nock stack is {:?} — /prove will be unavailable. \
+                   Use --stack-size large for STARK proving.", stack_size);
+    }
 
     // --- HTTP server mode ---
     if cli.serve {
@@ -247,6 +253,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             signing_key: sk,
             coinbase_timelock_min: cli.coinbase_timelock_min,
             tx_fee: cli.tx_fee,
+            stack_size: stack_size.clone(),
         }));
         return api::serve(state, cli.port).await;
     }

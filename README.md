@@ -46,7 +46,7 @@ Rust toolchain: `nightly-2025-11-26` (pinned in `hull/rust-toolchain`).
 ## Test
 
 ```bash
-cargo test --lib                    # 79 unit tests
+cargo test --lib                    # 88 unit tests
 cargo test --test e2e_pipeline      # kernel boot + settlement
 cargo test --test e2e_adversarial   # 7 kernel attack vectors, 5 HTTP vectors
 cargo test                          # all of the above
@@ -84,10 +84,11 @@ cd hull && cargo run
 |----------|--------|-|
 | `/ingest` | POST | documents in, Merkle tree out |
 | `/query` | POST | natural language query, triggers retrieval + settlement |
+| `/prove` | POST | like `/query` but adds STARK proof (needs `--stack-size large`) |
 | `/status` | GET | tree state, settled notes, root |
 | `/health` | GET | liveness |
 
-Expects Ollama at `localhost:11434` for inference.
+Expects Ollama at `localhost:11434` for inference. For STARK proving, boot with `--stack-size large` or larger.
 
 ## License
 

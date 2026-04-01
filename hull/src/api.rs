@@ -29,6 +29,8 @@ use axum::extract::State;
 use axum::http::StatusCode;
 use axum::routing::{get, post};
 use axum::{Json, Router};
+use nockapp::kernel::boot::NockStackSize;
+use nockapp::noun::slab::{NockJammer, NounSlab};
 use nockapp::wire::{SystemWire, Wire};
 use nockapp::NockApp;
 use serde::{Deserialize, Serialize};
@@ -71,6 +73,8 @@ pub struct AppState {
     pub coinbase_timelock_min: u64,
     /// Transaction fee.
     pub tx_fee: u64,
+    /// Nock stack size the kernel was booted with.
+    pub stack_size: NockStackSize,
 }
 
 pub type SharedState = Arc<Mutex<AppState>>;
@@ -123,6 +127,31 @@ pub struct QueryResponse {
 }
 
 #[derive(Serialize, Deserialize)]
+pub struct ProveResponse {
+    pub query: String,
+    pub chunks_retrieved: usize,
+    pub retrievals: Vec<RetrievalInfo>,
+    pub prompt_bytes: usize,
+    pub output: String,
+    pub note_id: u64,
+    pub settled: bool,
+    pub merkle_root: String,
+    /// STARK proof bytes (hex-encoded JAM of the proof noun).
+    pub proof_jam_hex: String,
+    /// Size of the proof in bytes.
+    pub proof_bytes: usize,
+    /// Error message if prove-computation crashed (settlement did NOT happen).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub prove_error: Option<String>,
+    /// Transaction ID if submitted on-chain (base58).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tx_id: Option<String>,
+    /// Whether the transaction was accepted on-chain.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tx_accepted: Option<bool>,
+}
+
+#[derive(Serialize, Deserialize)]
 pub struct RetrievalInfo {
     pub chunk_id: u64,
     pub score: f64,
@@ -159,6 +188,7 @@ pub fn router(state: SharedState) -> Router {
         .route("/status", get(status))
         .route("/ingest", post(ingest_handler))
         .route("/query", post(query_handler))
+        .route("/prove", post(prove_handler))
         .with_state(state)
 }
 
@@ -434,6 +464,276 @@ async fn query_handler(
     }))
 }
 
+async fn prove_handler(
+    State(state): State<SharedState>,
+    Json(req): Json<QueryRequest>,
+) -> Result<Json<ProveResponse>, (StatusCode, Json<ErrorBody>)> {
+    let mut st = state.lock().await;
+
+    // Pre-flight: reject if stack is too small for STARK proving (~3GB needed)
+    if matches!(st.stack_size, NockStackSize::Tiny | NockStackSize::Small | NockStackSize::Normal | NockStackSize::Medium) {
+        return Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(ErrorBody {
+                error: format!(
+                    "STARK proving requires --stack-size large (4GB) or larger. \
+                     Current stack: {:?}. Restart hull with: hull --stack-size large --serve",
+                    st.stack_size
+                ),
+            }),
+        ));
+    }
+
+    let tree = st.tree.as_ref().ok_or_else(|| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(ErrorBody {
+                error: "no documents ingested — call POST /ingest first".into(),
+            }),
+        )
+    })?;
+
+    let root = tree.root();
+    let k = req.top_k.unwrap_or(st.top_k);
+
+    // Retrieve
+    let hits = st.retriever.retrieve(&req.query, &st.chunks, k);
+    if hits.is_empty() {
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(ErrorBody {
+                error: "no relevant chunks found for query".into(),
+            }),
+        ));
+    }
+
+    let retrieval_infos: Vec<RetrievalInfo> = hits
+        .iter()
+        .map(|h| {
+            let dat = &st.chunks[h.chunk_index].dat;
+            RetrievalInfo {
+                chunk_id: st.chunks[h.chunk_index].id,
+                score: h.score,
+                preview: if dat.len() > 80 {
+                    format!("{}...", &dat[..80])
+                } else {
+                    dat.clone()
+                },
+            }
+        })
+        .collect();
+
+    let retrieved_chunks: Vec<&Chunk> =
+        hits.iter().map(|h| &st.chunks[h.chunk_index]).collect();
+
+    let retrievals: Vec<Retrieval> = hits
+        .iter()
+        .map(|h| Retrieval {
+            chunk: st.chunks[h.chunk_index].clone(),
+            proof: tree.proof(h.chunk_index),
+            score: h.score_fixed(),
+        })
+        .collect();
+
+    // Build prompt + call LLM
+    let prompt = llm::build_prompt(&req.query, &retrieved_chunks);
+    let prompt_bytes = prompt.len();
+
+    let output = st.llm.generate(&prompt).await.map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorBody {
+                error: format!("LLM inference failed: {e}"),
+            }),
+        )
+    })?;
+
+    // Build manifest
+    let manifest = Manifest {
+        query: req.query.clone(),
+        results: retrievals,
+        prompt,
+        output: output.clone(),
+    };
+
+    // Create note + prove via kernel poke (%prove instead of %settle)
+    st.note_counter += 1;
+    let note_id = st.note_counter;
+
+    let note = Note {
+        id: note_id,
+        hull: st.hull_id,
+        root,
+        state: NoteState::Pending,
+    };
+
+    let prove_poke = noun_builder::build_prove_poke(&note, &manifest, &root);
+    eprintln!("[prove] firing %prove poke (note_id={note_id})...");
+    let prove_start = std::time::Instant::now();
+    let effects = st
+        .app
+        .poke(SystemWire.to_wire(), prove_poke)
+        .await
+        .map_err(|e| {
+            eprintln!("[prove] kernel %prove poke ERRORED: {e}");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorBody {
+                    error: format!("kernel prove poke failed: {e}"),
+                }),
+            )
+        })?;
+    let prove_elapsed = prove_start.elapsed();
+    eprintln!("[prove] poke returned {} effect(s) in {:.2}s", effects.len(), prove_elapsed.as_secs_f64());
+
+    // Extract proof from effects.
+    //
+    // On success: ~[[result-note proof]] — one effect, a cell of [note proof]
+    // On proof failure: ~[[%prove-failed ~]] — mule caught the crash, no settlement
+    // On total crash: 0 effects — wrapper swallowed crash (pre-mule kernels)
+    let mut proof_jam_hex = String::new();
+    let mut prove_error: Option<String> = None;
+    let mut settled = false;
+
+    if let Some(effect_slab) = effects.first() {
+        let root_noun = unsafe { *effect_slab.root() };
+        eprintln!("[prove] effect root: is_cell={}", root_noun.is_cell());
+
+        // Check for [%prove-failed ~] — head is the cord "prove-failed"
+        let is_prove_failed = root_noun.as_cell().ok().and_then(|cell| {
+            cell.head().as_atom().ok().and_then(|a| {
+                let bytes = a.as_ne_bytes();
+                if bytes == b"prove-failed" { Some(()) } else { None }
+            })
+        }).is_some();
+
+        if is_prove_failed {
+            eprintln!("[prove] kernel returned %prove-failed — proof crashed, note NOT settled");
+            prove_error = Some(
+                "prove-computation crashed in kernel (likely insufficient Nock stack). \
+                 Note was NOT settled. Ensure --stack-size large or larger."
+                    .into(),
+            );
+        } else {
+            match root_noun.as_cell() {
+                Ok(cell) => {
+                    let proof_noun = cell.tail();
+                    eprintln!(
+                        "[prove] proof noun: is_cell={}, is_atom={}",
+                        proof_noun.is_cell(),
+                        proof_noun.is_atom()
+                    );
+                    let mut proof_slab: NounSlab<NockJammer> = NounSlab::new();
+                    proof_slab.copy_into(proof_noun);
+                    let proof_bytes = proof_slab.jam();
+                    eprintln!("[prove] proof jammed: {} bytes", proof_bytes.len());
+                    proof_jam_hex = hex::encode(&proof_bytes);
+                    settled = true;
+                }
+                Err(_) => {
+                    if root_noun.is_atom() {
+                        let val = root_noun.as_atom().map(|a| a.as_u64());
+                        eprintln!("[prove] effect is unexpected atom: {:?}", val);
+                    }
+                    prove_error = Some("unexpected effect structure from %prove poke".into());
+                }
+            }
+        }
+    } else {
+        eprintln!("[prove] WARNING: 0 effects — %prove crashed (pre-mule kernel or fatal error)");
+        prove_error = Some(
+            "prove poke returned 0 effects — kernel crashed. \
+             Recompile kernel and use --stack-size large."
+                .into(),
+        );
+    }
+
+    let proof_bytes_len = proof_jam_hex.len() / 2;
+    let root_hex = crate::merkle::format_tip5(&root);
+
+    // If proof failed, return error — no chain submission
+    if let Some(ref err) = prove_error {
+        return Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorBody {
+                error: err.clone(),
+            }),
+        ));
+    }
+
+    // --- On-chain submission (only if proof succeeded) ---
+    let mut tx_id: Option<String> = None;
+    let mut tx_accepted: Option<bool> = None;
+
+    if let (Some(endpoint), Some(sk)) = (&st.chain_endpoint, &st.signing_key) {
+        let note_for_settlement = Note {
+            id: note_id,
+            hull: st.hull_id,
+            root,
+            state: NoteState::Settled,
+        };
+        let settlement = chain::SettlementData::from_settlement(&note_for_settlement, &manifest);
+        let pkh = signing::pubkey_hash(&signing::derive_pubkey(sk));
+        let pkh_b58 = pkh.to_base58();
+
+        let chain_config = chain::ChainConfig::local(endpoint);
+        if let Ok(mut client) = chain::ChainClient::connect(chain_config).await {
+            let balance = client
+                .get_balance_by_pkh(&pkh_b58, st.coinbase_timelock_min)
+                .await;
+
+            if let Ok(ref bal) = balance {
+                let utxos = chain::extract_spendable_utxos(bal);
+                if let Some(utxo) = utxos.iter().max_by_key(|u| u.amount) {
+                    let params = tx_builder::SettlementTxParams {
+                        input_name: nockchain_types::tx_engine::common::Name::new(
+                            utxo.name.clone(),
+                            utxo.last_name.clone(),
+                        ),
+                        input_note_hash: utxo.last_name.clone(),
+                        input_amount: utxo.amount,
+                        is_coinbase: true,
+                        coinbase_timelock_min: st.coinbase_timelock_min,
+                        source_hash: nockchain_types::tx_engine::common::Hash::from_limbs(
+                            &[0, 0, 0, 0, 0],
+                        ),
+                        recipient_pkh: pkh,
+                        settlement,
+                        fee: st.tx_fee,
+                        signing_key: *sk,
+                    };
+
+                    if let Ok(raw_tx) = tx_builder::build_settlement_tx(&mut st.app, &params).await
+                    {
+                        let id_b58 = raw_tx.id.to_base58();
+                        tx_id = Some(id_b58.clone());
+                        match client.submit_and_wait(raw_tx, &id_b58).await {
+                            Ok(accepted) => tx_accepted = Some(accepted),
+                            Err(_) => tx_accepted = Some(false),
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(Json(ProveResponse {
+        query: req.query,
+        chunks_retrieved: hits.len(),
+        retrievals: retrieval_infos,
+        prompt_bytes,
+        output,
+        note_id,
+        settled,
+        merkle_root: root_hex,
+        proof_jam_hex,
+        proof_bytes: proof_bytes_len,
+        prove_error: None,
+        tx_id,
+        tx_accepted,
+    }))
+}
+
 // ---------------------------------------------------------------------------
 // Server entry point
 // ---------------------------------------------------------------------------
@@ -445,6 +745,7 @@ pub async fn serve(state: SharedState, port: u16) -> Result<(), Box<dyn std::err
     println!("Vesl Hull API listening on http://0.0.0.0:{port}");
     println!("  POST /ingest  — upload documents");
     println!("  POST /query   — retrieve + infer + settle");
+    println!("  POST /prove   — retrieve + infer + settle + STARK proof (needs --stack-size large)");
     println!("  GET  /status  — current state");
     println!("  GET  /health  — liveness check");
     axum::serve(listener, app).await?;
@@ -488,6 +789,7 @@ mod tests {
             signing_key: None,
             coinbase_timelock_min: 1,
             tx_fee: 3000,
+            stack_size: NockStackSize::Normal,
         }))
     }
 

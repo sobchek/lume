@@ -550,6 +550,7 @@ mod http_api {
             signing_key: None,
             coinbase_timelock_min: 1,
             tx_fee: 3000,
+            stack_size: nockapp::kernel::boot::NockStackSize::Normal,
         }));
 
         (api::router(state.clone()), state, tmp)

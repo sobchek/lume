@@ -443,6 +443,7 @@ async fn fakenet_http_api_full_pipeline() {
         signing_key: None,
         coinbase_timelock_min: 1,
         tx_fee: 3000,
+        stack_size: nockapp::kernel::boot::NockStackSize::Normal,
     }));
 
     let router = hull::api::router(state.clone());
