@@ -61,7 +61,7 @@
 =/  output=@t  'Based on the provided documents: Q3 revenue: $4.2M ARR, 18% QoQ growth | Risk exposure: $800K in variable-rate instruments The analysis indicates positive growth trajectory.'
 ::
 =/  valid-mani
-  [query=query results=results prompt=valid-prompt output=output]
+  [query=query results=results prompt=valid-prompt output=output page=0]
 ::
 =/  pending-note  [id=42 hull=7 root=root state=[%pending ~]]
 ::

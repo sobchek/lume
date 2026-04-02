@@ -164,7 +164,7 @@ impl SettlementData {
 
 /// Compute tip5 hash of a manifest for on-chain integrity verification.
 ///
-/// Concatenates query + "\n" + each chunk's dat + "\n" + prompt + "\n" + output,
+/// Concatenates query + "\n" + each chunk's dat + "\n" + prompt + "\n" + output + "\n" + page,
 /// then hashes the result as a single atom via `hash_leaf` (tip5 varlen sponge).
 pub fn manifest_hash(manifest: &Manifest) -> Tip5Hash {
     let mut content = manifest.query.clone();
@@ -176,6 +176,8 @@ pub fn manifest_hash(manifest: &Manifest) -> Tip5Hash {
     content.push_str(&manifest.prompt);
     content.push('\n');
     content.push_str(&manifest.output);
+    content.push('\n');
+    content.push_str(&manifest.page.to_string());
     hash_leaf(content.as_bytes())
 }
 
@@ -918,6 +920,7 @@ mod tests {
             }],
             prompt: "What is the revenue?\nQ3 revenue: $4.2M".to_string(),
             output: "Revenue is $4.2M".to_string(),
+            page: 0,
         }
     }
 

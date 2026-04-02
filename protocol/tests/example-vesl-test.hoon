@@ -71,7 +71,7 @@
 =/  s3  (cat 3 s2 sep)
 =/  valid-prompt=@t  `@t`(cat 3 s3 'bravo')
 =/  valid-mani
-  [query=query results=results prompt=valid-prompt output='test output']
+  [query=query results=results prompt=valid-prompt output='test output' page=0]
 =/  pending-note  [id=1 hull=1 root=root state=[%pending ~]]
 ::
 ::  Valid case succeeds
@@ -80,7 +80,7 @@
 ::  Tampered prompt crashes
 =/  bad-prompt=@t  `@t`(cat 3 valid-prompt ' INJECTED')
 =/  bad-mani
-  [query=query results=results prompt=bad-prompt output='evil']
+  [query=query results=results prompt=bad-prompt output='evil' page=0]
 ?>  (assert-crash |.((settle-note pending-note bad-mani root)))
 ::
 %pass

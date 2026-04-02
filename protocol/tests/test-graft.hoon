@@ -36,7 +36,7 @@
 =/  s3  (cat 3 s2 sep)
 =/  valid-prompt=@t  `@t`(cat 3 s3 'Risk exposure: 15% in emerging markets')
 =/  valid-mani
-  [query=query results=results prompt=valid-prompt output='Based on your Q3 data...']
+  [query=query results=results prompt=valid-prompt output='Based on your Q3 data...' page=0]
 ::
 =/  pending-note  [id=42 hull=7 root=root state=[%pending ~]]
 ::

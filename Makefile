@@ -6,7 +6,7 @@
 #   make build                        (compile hull)
 #   make demo-local                   (run the pipeline, no chain)
 
-.PHONY: help setup build test test-unit demo demo-local kernel clean status
+.PHONY: help setup build build-dumbnet test test-unit demo-fakenet demo-local demo-dumbnet wallet-init kernel clean status
 
 # ---------------------------------------------------------------------------
 # Config: vesl.toml → env var fallback → empty
@@ -30,15 +30,20 @@ help:
 	@echo "  make demo-local                   # run the pipeline"
 	@echo ""
 	@echo "Targets:"
-	@echo "  setup       Create hoon/ symlinks to nockchain monorepo"
-	@echo "  build       Compile hull (cargo build --release)"
-	@echo "  test        Run all tests (unit + e2e)"
-	@echo "  test-unit   Run unit tests only"
-	@echo "  demo        Full demo with fakenet (requires nockchain in PATH)"
-	@echo "  demo-local  Local-only demo (no chain, stub LLM unless ollama configured)"
-	@echo "  kernel      Recompile Hoon kernel to assets/vesl.jam"
-	@echo "  clean       Remove build artifacts and runtime state"
-	@echo "  status      Show fakenet status"
+	@echo "  setup          Create hoon/ symlinks to nockchain monorepo"
+	@echo "  build          Compile hull (cargo build --release)"
+	@echo "  build-dumbnet  Compile hull with dumbnet wallet support"
+	@echo "  test           Run all tests (unit + e2e)"
+	@echo "  test-unit      Run unit tests only"
+	@echo "  demo-fakenet   Full demo with fakenet (requires nockchain in PATH)"
+	@echo "  demo-local     Local-only demo (no chain, stub LLM unless ollama configured)"
+	@echo "  demo-dumbnet   Demo against a running nockchain node (requires wallet init)"
+	@echo "  wallet-init    Generate a new keypair for dumbnet mode"
+	@echo "  kernel         Recompile Hoon kernel to assets/vesl.jam"
+	@echo "  clean          Remove build artifacts and runtime state"
+	@echo "  status         Show fakenet status"
+	@echo ""
+	@echo "Settlement modes: local (default), fakenet, dumbnet"
 	@echo ""
 	@echo "Config: set values in vesl.toml or via environment variables."
 	@echo "  NOCK_HOME   = $(or $(NOCK_HOME),(not set))"
@@ -101,14 +106,17 @@ setup: check-cargo check-nock-home
 build: check-cargo
 	cd hull && cargo build --release
 
+build-dumbnet: check-cargo
+	cd hull && cargo build --release --features dumbnet
+
 test: check-cargo
 	cd hull && cargo test
 
 test-unit: check-cargo
 	cd hull && cargo test --lib
 
-demo: check-cargo check-nockchain
-	@DEMO_FLAGS=""; \
+demo-fakenet: check-cargo check-nockchain
+	@DEMO_FLAGS="--fakenet"; \
 	if [ -n "$(OLLAMA_URL)" ]; then DEMO_FLAGS="$$DEMO_FLAGS --ollama-url $(OLLAMA_URL)"; fi; \
 	if [ -n "$(API_PORT)" ]; then DEMO_FLAGS="$$DEMO_FLAGS --port $(API_PORT)"; fi; \
 	./scripts/demo.sh $$DEMO_FLAGS
@@ -118,6 +126,15 @@ demo-local: check-cargo
 	if [ -n "$(OLLAMA_URL)" ]; then DEMO_FLAGS="$$DEMO_FLAGS --ollama-url $(OLLAMA_URL)"; fi; \
 	if [ -n "$(API_PORT)" ]; then DEMO_FLAGS="$$DEMO_FLAGS --port $(API_PORT)"; fi; \
 	./scripts/demo.sh $$DEMO_FLAGS
+
+demo-dumbnet: check-cargo
+	@DEMO_FLAGS="--dumbnet"; \
+	if [ -n "$(OLLAMA_URL)" ]; then DEMO_FLAGS="$$DEMO_FLAGS --ollama-url $(OLLAMA_URL)"; fi; \
+	if [ -n "$(API_PORT)" ]; then DEMO_FLAGS="$$DEMO_FLAGS --port $(API_PORT)"; fi; \
+	./scripts/demo.sh $$DEMO_FLAGS
+
+wallet-init: check-cargo
+	cd hull && cargo run --features dumbnet -- wallet init --keygen
 
 kernel: check-cargo check-nock-home check-hoonc
 	hoonc --new protocol/lib/vesl-kernel.hoon hoon/

@@ -7,6 +7,7 @@
 
 pub mod api;
 pub mod chain;
+pub mod config;
 pub mod ingest;
 pub mod llm;
 pub mod merkle;

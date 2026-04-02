@@ -80,13 +80,14 @@ fn retrieval_list_to_noun(stack: &mut NockStack, results: &[Retrieval]) -> Noun 
     list
 }
 
-/// `+$manifest  [query=@t results=(list retrieval) prompt=@t output=@t]`
+/// `+$manifest  [query=@t results=(list retrieval) prompt=@t output=@t page=@ud]`
 fn manifest_to_noun(stack: &mut NockStack, m: &Manifest) -> Noun {
     let query = make_cord(stack, &m.query);
     let results = retrieval_list_to_noun(stack, &m.results);
     let prompt = make_cord(stack, &m.prompt);
     let output = make_cord(stack, &m.output);
-    T(stack, &[query, results, prompt, output])
+    let page = D(m.page);
+    T(stack, &[query, results, prompt, output, page])
 }
 
 /// `note=[id=@ hull=@ root=@ state=[%pending ~]]`
@@ -272,6 +273,7 @@ pub fn build_hedge_fund_scenario() -> (Note, Manifest, Tip5Hash) {
         results: retrievals,
         prompt,
         output,
+        page: 0,
     };
 
     let note = Note {

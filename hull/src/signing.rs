@@ -126,6 +126,36 @@ pub fn sign(sk: &[Belt; 8], message: &[Belt; 5]) -> SchnorrSignature {
 }
 
 // ---------------------------------------------------------------------------
+// Key derivation for dumbnet mode
+// ---------------------------------------------------------------------------
+
+/// Derive a signing key from a seed phrase.
+///
+/// Hashes the phrase bytes through tip5's `hash_varlen`, then truncates
+/// to a valid scalar in (0, g_order) and packs into 8 × 32-bit Belts.
+pub fn key_from_seed_phrase(phrase: &str) -> [Belt; 8] {
+    let bytes = phrase.as_bytes();
+    // Pack bytes into Belt values (8 bytes per Belt, little-endian)
+    let mut belts: Vec<Belt> = Vec::with_capacity((bytes.len() + 7) / 8);
+    for chunk in bytes.chunks(8) {
+        let mut val: u64 = 0;
+        for (i, &b) in chunk.iter().enumerate() {
+            val |= (b as u64) << (i * 8);
+        }
+        belts.push(Belt(val));
+    }
+    let hash = hash_varlen(&mut belts);
+    let scalar = trunc_g_order(&hash);
+    assert!(scalar > UBig::from(0u64), "seed phrase produced zero scalar — use a different phrase");
+    ubig_to_belts8(&scalar)
+}
+
+/// Check whether a signing key matches the hardcoded demo key.
+pub fn is_demo_key(sk: &[Belt; 8]) -> bool {
+    *sk == demo_signing_key()
+}
+
+// ---------------------------------------------------------------------------
 // Conversion helpers (UBig ↔ [Belt; 8] in 32-bit chunks)
 // ---------------------------------------------------------------------------
 

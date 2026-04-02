@@ -86,7 +86,7 @@ fn rust_payload_structure_integrity() {
     let null = state.as_cell().unwrap().tail().as_atom().expect("null").as_u64().expect("null u64");
     assert_eq!(null, 0, "state tail = ~");
 
-    // --- Verify manifest structure: [query [results [prompt output]]] ---
+    // --- Verify manifest structure: [query [results [prompt [output page]]]] ---
     let mani = cued.slot(6).expect("manifest at axis 6");
     assert!(mani.is_cell(), "manifest is cell");
 
@@ -106,9 +106,15 @@ fn rust_payload_structure_integrity() {
     let prompt = mani.slot(14).expect("prompt");
     assert!(prompt.is_atom(), "prompt is atom");
 
-    // Output is an atom
-    let output = mani.slot(15).expect("output");
+    // Output is an atom (slot 30 = head of [output page] at slot 15)
+    let output = mani.slot(30).expect("output");
     assert!(output.is_atom(), "output is atom");
+
+    // Page is an atom (slot 31 = tail of [output page] at slot 15)
+    let page = mani.slot(31).expect("page");
+    assert!(page.is_atom(), "page is atom");
+    let page_val = page.as_atom().expect("page atom").as_u64().expect("page u64");
+    assert_eq!(page_val, 0, "page = 0 (placeholder)");
 
     // --- Verify expected-root at axis 7 matches note root ---
     let expected_root_noun = cued.slot(7).expect("expected-root at axis 7");
@@ -123,7 +129,7 @@ fn rust_payload_structure_integrity() {
 
     eprintln!("\n=== Rust payload structure: VERIFIED ===");
     eprintln!("  Note: id=42, hull=7, state=%pending, root=tip5");
-    eprintln!("  Manifest: query + 2 retrievals + prompt + output");
+    eprintln!("  Manifest: query + 2 retrievals + prompt + output + page");
     eprintln!("  Expected root: matches note root (cross-checked independently)");
     eprintln!("  cross-runtime alignment: PROVEN");
 }

@@ -29,13 +29,14 @@ pub struct Retrieval {
     pub score: u64,
 }
 
-/// Mirror of `+$manifest  [query=@t results=(list retrieval) prompt=@t output=@t]`
+/// Mirror of `+$manifest  [query=@t results=(list retrieval) prompt=@t output=@t page=@ud]`
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Manifest {
     pub query: String,
     pub results: Vec<Retrieval>,
     pub prompt: String,
     pub output: String,
+    pub page: u64,
 }
 
 /// Mirror of `+$nock-zkp  [root=merkle-root prf=@ stamp=@da]`

@@ -1,1 +1,0 @@
-../../protocol/lib/grip-kernel.hoon

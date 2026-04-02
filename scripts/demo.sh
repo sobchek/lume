@@ -32,6 +32,7 @@ DEMO_DOCS="$PROJECT_ROOT/demo/docs"
 
 MANAGE_FAKENET=true
 USE_CHAIN=true
+SETTLEMENT_MODE="fakenet"
 OLLAMA_URL="${OLLAMA_URL:-}"
 OLLAMA_MODEL="${OLLAMA_MODEL:-llama3.2}"
 HULL_PORT="${HULL_PORT:-3000}"
@@ -44,8 +45,10 @@ HULL_PID=""
 # Parse flags
 while [[ $# -gt 0 ]]; do
     case "$1" in
+        --fakenet)     SETTLEMENT_MODE="fakenet"; MANAGE_FAKENET=true; USE_CHAIN=true; shift ;;
+        --dumbnet)     SETTLEMENT_MODE="dumbnet"; MANAGE_FAKENET=false; USE_CHAIN=true; shift ;;
         --no-fakenet)  MANAGE_FAKENET=false; shift ;;
-        --no-chain)    USE_CHAIN=false; MANAGE_FAKENET=false; shift ;;
+        --no-chain)    SETTLEMENT_MODE="local"; USE_CHAIN=false; MANAGE_FAKENET=false; shift ;;
         --ollama-url)  OLLAMA_URL="$2"; shift 2 ;;
         --ollama-model) OLLAMA_MODEL="$2"; shift 2 ;;
         --port)        HULL_PORT="$2"; shift 2 ;;
@@ -53,6 +56,8 @@ while [[ $# -gt 0 ]]; do
             echo "Usage: $0 [OPTIONS]"
             echo ""
             echo "Options:"
+            echo "  --fakenet                 Explicit fakenet mode (default chain behavior)"
+            echo "  --dumbnet                 Dumbnet mode (use running node, no fakenet boot)"
             echo "  --no-fakenet              Skip fakenet boot (use running instance)"
             echo "  --no-chain                Local-only demo (no chain interaction)"
             echo "  --ollama-url URL          Use real LLM (e.g., http://localhost:11434)"
@@ -65,6 +70,7 @@ while [[ $# -gt 0 ]]; do
             echo "  MINING_PKH                Miner PKH for fakenet (base58)"
             echo "  NOCKCHAIN_GRPC_ADDR       Chain gRPC address (default: 127.0.0.1:9090)"
             echo "  WAIT_BLOCKS_TIMEOUT       Seconds to wait for mined blocks (default: 120)"
+            echo "  VESL_SEED_PHRASE          Seed phrase for dumbnet key derivation"
             exit 0
             ;;
         *)
@@ -262,6 +268,7 @@ HULL_FLAGS=(
     --port "$HULL_PORT"
     --docs "$DEMO_DOCS"
     --top-k 3
+    --settlement-mode "$SETTLEMENT_MODE"
 )
 
 if [[ -n "$OLLAMA_URL" ]]; then
@@ -272,7 +279,6 @@ if [[ "$USE_CHAIN" == "true" ]]; then
     HULL_FLAGS+=(
         --chain-endpoint "http://$NOCKCHAIN_GRPC_ADDR"
         --wallet-address "$MINING_PKH"
-        --submit
         --coinbase-timelock-min 1
     )
 fi

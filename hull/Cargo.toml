@@ -23,9 +23,7 @@ anyhow = "1.0"
 clap = { version = "4", features = ["derive"] }
 reqwest = { version = "0.12", features = ["json"] }
 axum = "0.8"
-
-# --- Vesl SDK ---
-vesl-mantle = { path = "../crates/vesl-mantle" }
+toml = "0.8"
 
 # --- Vesl extracted crates ---
 nock-noun-rs = { path = "../crates/nock-noun-rs" }
@@ -47,6 +45,9 @@ getrandom = "0.3"
 # --- Vesl kernel crate (embeds compiled vesl.jam) ---
 kernels_vesl = { path = "../kernels/vesl" }
 
+# Optional: wallet kernel for dumbnet key management
+kernels-open-wallet = { path = "../../nockchain/crates/kernels/wallet", optional = true }
+
 [dev-dependencies]
 tempfile = "3"
 tower = "0.5"
@@ -54,6 +55,8 @@ http-body-util = "0.1"
 kernels-open-wallet = { path = "../../nockchain/crates/kernels/wallet" }
 
 [features]
+# Real-key settlement against a live nockchain node.
+dumbnet = ["dep:kernels-open-wallet"]
 # Gate wallet kernel integration tests behind a feature flag.
 # Boot takes ~5-10s for the 20MB wal.jam kernel.
-_wallet_kernel_tests = []
+_wallet_kernel_tests = ["dep:kernels-open-wallet"]

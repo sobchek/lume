@@ -1,6 +1,6 @@
 //! Kraken — STARK Proof (heaviest tentacle)
 //!
-//! Everything Beak does, plus STARK proof generation.
+//! Everything Anchor does, plus STARK proof generation.
 //! Pokes kernel with %prove instead of %settle,
 //! gets back a settled note + STARK proof bytes.
 
@@ -11,7 +11,7 @@ use nockchain_tip5_rs::Tip5Hash;
 use crate::types::{Manifest, Note};
 
 pub struct Kraken {
-    // Internal: Beak + prover hot state (zkvm-jetpack).
+    // Internal: Anchor + prover hot state (zkvm-jetpack).
     // Entirely stubbed — STARK prover wiring is the heaviest lift.
 }
 

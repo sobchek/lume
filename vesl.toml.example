@@ -1,6 +1,7 @@
 # Vesl configuration
 # Copy to vesl.toml and adjust paths for your setup.
 # Environment variables override these values.
+# CLI flags override everything.
 
 # Path to the nockchain monorepo (required for `make setup` and `make kernel`)
 # Default matches the standard sibling layout: ~/projects/nockchain/{vesl,nockchain}
@@ -11,3 +12,15 @@ nock_home = "../../nockchain"
 
 # Hull HTTP API port (default: 3000)
 # api_port = 3000
+
+# --- Settlement mode ---
+# "local" (default) — no chain, just dev/testing
+# "fakenet"         — localhost fakenet with demo signing key
+# "dumbnet"         — live network with real keys (requires wallet init)
+# settlement_mode = "local"
+
+# --- Chain settings (fakenet/dumbnet only) ---
+# chain_endpoint = "http://localhost:9090"
+# tx_fee = 256              # network minimum is 256 nicks
+# coinbase_timelock_min = 1
+# accept_timeout_secs = 300   # fakenet default; dumbnet default is 900
