@@ -10,6 +10,8 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use clap::Parser;
+#[cfg(feature = "dumbnet")]
+use clap::Subcommand;
 use nockapp::kernel::boot;
 use nockapp::noun::slab::NounSlab;
 use nockapp::wire::{SystemWire, Wire};
@@ -18,6 +20,7 @@ use tokio::sync::Mutex;
 
 use hull::api;
 use hull::chain;
+use hull::config::{self, SettlementConfig, SettlementMode};
 use hull::ingest;
 use hull::llm;
 use hull::merkle::{self, MerkleTree};
@@ -29,6 +32,7 @@ use hull::types::*;
 
 #[derive(Parser)]
 #[command(name = "hull", about = "Vesl Hull Orchestrator")]
+#[group(id = "hull_cli")]
 struct Cli {
     #[command(flatten)]
     boot: boot::Cli,
@@ -65,35 +69,90 @@ struct Cli {
     #[arg(long = "port", default_value = "3000")]
     port: u16,
 
+    /// Bind address for the HTTP API server [default: 127.0.0.1].
+    /// Use 0.0.0.0 to expose to the network.
+    #[arg(long = "bind-addr", default_value = "127.0.0.1")]
+    bind_addr: String,
+
+    /// Settlement mode: local (default), fakenet, or dumbnet.
+    #[arg(long = "settlement-mode", value_enum)]
+    settlement_mode: Option<SettlementMode>,
+
+    /// Path to vesl.toml config file.
+    #[arg(long = "config", default_value = "../vesl.toml")]
+    config: PathBuf,
+
     /// Nockchain gRPC endpoint for on-chain settlement.
-    /// If omitted, the pipeline runs locally without chain submission.
+    /// If set without --settlement-mode, infers fakenet.
     #[arg(long = "chain-endpoint")]
     chain_endpoint: Option<String>,
 
     /// Wallet address (base58) for checking funding and querying notes.
-    /// Required when --chain-endpoint is set.
     #[arg(long = "wallet-address")]
     wallet_address: Option<String>,
 
     /// Wallet private gRPC endpoint for signing coordination.
-    /// If omitted, wallet coordination is skipped.
-    /// Default wallet port is 5555 (e.g., http://localhost:5555).
     #[arg(long = "wallet-grpc")]
     wallet_grpc: Option<String>,
 
-    /// Submit settlement transaction on-chain after kernel settlement.
-    /// Requires --chain-endpoint. Uses the demo signing key to spend a
-    /// coinbase UTXO and embed Vesl NoteData in the output.
+    /// Submit settlement transaction on-chain.
+    /// If set without --settlement-mode, infers fakenet.
     #[arg(long = "submit")]
     submit: bool,
 
-    /// Coinbase timelock minimum for UTXO spending. Fakenet default is 1.
-    #[arg(long = "coinbase-timelock-min", default_value = "1")]
-    coinbase_timelock_min: u64,
+    /// Coinbase timelock minimum for UTXO spending [default: 1].
+    #[arg(long = "coinbase-timelock-min")]
+    coinbase_timelock_min: Option<u64>,
 
-    /// Transaction fee in nicks for settlement transactions.
-    #[arg(long = "tx-fee", default_value = "3000")]
-    tx_fee: u64,
+    /// Transaction fee in nicks [default: 3000].
+    #[arg(long = "tx-fee")]
+    tx_fee: Option<u64>,
+
+    /// TX acceptance timeout in seconds [fakenet: 300, dumbnet: 900].
+    #[arg(long = "accept-timeout")]
+    accept_timeout: Option<u64>,
+
+    /// Seed phrase for dumbnet key derivation.
+    /// Alternatively set VESL_SEED_PHRASE env var.
+    /// WARNING: visible in `ps` output. Prefer --seed-phrase-file.
+    #[arg(long = "seed-phrase")]
+    seed_phrase: Option<String>,
+
+    /// Path to a file containing the seed phrase (one line, trimmed).
+    /// Safer than --seed-phrase since the value never appears in ps output.
+    #[arg(long = "seed-phrase-file")]
+    seed_phrase_file: Option<PathBuf>,
+
+    /// Wallet subcommand (requires --features dumbnet).
+    #[cfg(feature = "dumbnet")]
+    #[command(subcommand)]
+    command: Option<Command>,
+}
+
+#[cfg(feature = "dumbnet")]
+#[derive(Subcommand)]
+enum Command {
+    /// Wallet key management for dumbnet settlement.
+    Wallet {
+        #[command(subcommand)]
+        action: WalletAction,
+    },
+}
+
+#[cfg(feature = "dumbnet")]
+#[derive(Subcommand)]
+enum WalletAction {
+    /// Generate a new keypair or import from a seed phrase.
+    Init {
+        /// Generate a new random keypair.
+        #[arg(long)]
+        keygen: bool,
+        /// Import keys from an existing seed phrase.
+        #[arg(long = "seed-phrase")]
+        seed_phrase: Option<String>,
+    },
+    /// Show the current wallet public key hash.
+    Status,
 }
 
 /// Fallback demo data when no --docs directory is provided.
@@ -175,11 +234,95 @@ fn report_effects(label: &str, effects: &[NounSlab]) {
     }
 }
 
+#[cfg(feature = "dumbnet")]
+fn handle_wallet(action: WalletAction) -> Result<(), Box<dyn std::error::Error>> {
+    match action {
+        WalletAction::Init { keygen, seed_phrase } => {
+            if keygen {
+                // Generate 32 bytes of entropy
+                let mut entropy = [0u8; 32];
+                getrandom::fill(&mut entropy)
+                    .map_err(|e| format!("failed to generate entropy: {e}"))?;
+                // Convert entropy to a Belt key by hashing
+                let hex_str = hex::encode(&entropy);
+                let sk = signing::key_from_seed_phrase(&hex_str)
+                    .map_err(|e| format!("key derivation failed: {e}"))?;
+                let pk = signing::derive_pubkey(&sk);
+                let pkh = signing::pubkey_hash(&pk);
+                println!("Keypair generated.");
+                println!("  PKH (base58): {}", pkh.to_base58());
+                println!("  Entropy (hex): {hex_str}");
+                println!();
+                println!("Save the entropy string. Pass it as --seed-phrase or");
+                println!("set VESL_SEED_PHRASE to use this key with dumbnet mode.");
+            } else if let Some(phrase) = seed_phrase {
+                let sk = signing::key_from_seed_phrase(&phrase)
+                    .map_err(|e| format!("key derivation failed: {e}"))?;
+                let pk = signing::derive_pubkey(&sk);
+                let pkh = signing::pubkey_hash(&pk);
+                println!("Key imported from seed phrase.");
+                println!("  PKH (base58): {}", pkh.to_base58());
+            } else {
+                eprintln!("Error: specify --keygen or --seed-phrase");
+                std::process::exit(1);
+            }
+        }
+        WalletAction::Status => {
+            match std::env::var("VESL_SEED_PHRASE") {
+                Ok(phrase) => {
+                    let sk = signing::key_from_seed_phrase(&phrase)
+                        .map_err(|e| format!("key derivation failed: {e}"))?;
+                    let pk = signing::derive_pubkey(&sk);
+                    let pkh = signing::pubkey_hash(&pk);
+                    println!("  PKH (base58): {}", pkh.to_base58());
+                    println!("  Key source:   VESL_SEED_PHRASE env var");
+                }
+                Err(_) => {
+                    eprintln!("No key configured. Set VESL_SEED_PHRASE or run `hull wallet init --keygen`.");
+                    std::process::exit(1);
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
 
+    // --- Handle wallet subcommand (dumbnet feature only) ---
+    #[cfg(feature = "dumbnet")]
+    if let Some(Command::Wallet { action }) = cli.command {
+        return handle_wallet(action);
+    }
+
+    // --- Load config from vesl.toml ---
+    let toml_cfg = config::load_config(&cli.config);
+
+    // --- Resolve seed phrase: file > CLI arg > env ---
+    let seed_phrase = if let Some(ref path) = cli.seed_phrase_file {
+        let contents = std::fs::read_to_string(path)
+            .map_err(|e| format!("failed to read seed phrase file {}: {e}", path.display()))?;
+        Some(contents.trim().to_string())
+    } else {
+        cli.seed_phrase.clone()
+    };
+
+    // --- Resolve settlement config ---
+    let settlement = SettlementConfig::resolve(
+        cli.settlement_mode,
+        cli.chain_endpoint.clone(),
+        cli.submit,
+        cli.tx_fee,
+        cli.coinbase_timelock_min,
+        cli.accept_timeout,
+        seed_phrase,
+        &toml_cfg,
+    );
+
     println!("=== Vesl Hull Orchestrator (NockApp) ===\n");
+    println!("    Settlement: {settlement}");
 
     // --- Boot the NockApp kernel with STARK prover jets ---
     println!("[0] Booting Vesl NockApp kernel...");
@@ -239,7 +382,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             (Vec::new(), None)
         };
 
-        let sk = if cli.submit { Some(signing::demo_signing_key()) } else { None };
         let state = Arc::new(Mutex::new(api::AppState {
             app,
             chunks,
@@ -249,13 +391,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             llm: provider,
             retriever: Box::new(retrieve::KeywordRetriever),
             note_counter: 0,
-            chain_endpoint: if cli.submit { cli.chain_endpoint.clone() } else { None },
-            signing_key: sk,
-            coinbase_timelock_min: cli.coinbase_timelock_min,
-            tx_fee: cli.tx_fee,
+            settlement: settlement.clone(),
             stack_size: stack_size.clone(),
         }));
-        return api::serve(state, cli.port).await;
+        return api::serve(state, cli.port, &cli.bind_addr).await;
     }
 
     // =====================================================================
@@ -353,6 +492,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         results: retrievals,
         prompt,
         output: output.clone(),
+        page: 0,
     };
     println!(
         "[6] Manifest: {} retrievals, prompt {} bytes",
@@ -381,9 +521,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     for (i, retrieval) in manifest.results.iter().enumerate() {
         let valid =
             merkle::verify_proof(retrieval.chunk.dat.as_bytes(), &retrieval.proof, &root);
-        if !valid {
-            all_valid = false;
-        }
+        if !valid { all_valid = false; }
         println!(
             "  retrieval[{}] chunk_id={}: proof {}",
             i,
@@ -391,33 +529,45 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             if valid { "VALID" } else { "FAILED" }
         );
     }
+    println!("  Manifest check: {}", if all_valid { "PASSED" } else { "FAILED" });
 
-    // --- [9] On-chain settlement (optional) ---
-    let settlement = chain::SettlementData::from_settlement(&note, &manifest);
+    // --- [9] On-chain settlement (optional, based on settlement mode) ---
+    let settlement_data = chain::SettlementData::from_settlement(&note, &manifest);
     let mut tx_accepted = false;
     let mut tx_id_str = String::new();
 
-    if let Some(ref endpoint) = cli.chain_endpoint {
+    if let (Some(endpoint), Some(sk)) =
+        (&settlement.chain_endpoint, &settlement.signing_key)
+    {
         println!("\n[9] Connecting to Nockchain node at {endpoint}...");
-        let chain_config = chain::ChainConfig::local(endpoint);
+        println!("    Mode: {}", settlement.mode);
+        let chain_config = settlement.chain_config().unwrap();
         match chain::ChainClient::connect(chain_config).await {
             Ok(mut client) => {
-                println!("    Settlement: {settlement}");
+                println!("    Settlement: {settlement_data}");
 
                 // --- [9a] Find spendable UTXO ---
-                let sk = signing::demo_signing_key();
-                let pkh = signing::pubkey_hash(&signing::derive_pubkey(&sk));
+                let pkh = signing::pubkey_hash(&signing::derive_pubkey(sk));
                 let pkh_b58 = pkh.to_base58();
                 println!("    Signer PKH: {}", &pkh_b58[..16]);
+                if signing::is_demo_key(sk) {
+                    println!("    Key: demo (fakenet)");
+                } else {
+                    println!("    Key: custom (dumbnet)");
+                }
 
                 let balance = client
-                    .get_balance_by_pkh(&pkh_b58, cli.coinbase_timelock_min)
+                    .get_balance_by_pkh(&pkh_b58, settlement.coinbase_timelock_min)
                     .await;
 
                 let utxos = match balance {
                     Ok(ref bal) => {
                         let u = chain::extract_spendable_utxos(bal);
-                        println!("    Balance: {} note(s), {} spendable UTXO(s)", bal.notes.len(), u.len());
+                        println!(
+                            "    Balance: {} note(s), {} spendable UTXO(s)",
+                            bal.notes.len(),
+                            u.len()
+                        );
                         u
                     }
                     Err(e) => {
@@ -426,7 +576,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                 };
 
-                if cli.submit && !utxos.is_empty() {
+                if settlement.auto_submit && !utxos.is_empty() {
                     // Pick the largest UTXO
                     let utxo = utxos.iter().max_by_key(|u| u.amount).unwrap();
                     println!("    Using UTXO: {} nicks", utxo.amount);
@@ -441,12 +591,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         input_note_hash: utxo.last_name.clone(),
                         input_amount: utxo.amount,
                         is_coinbase: true,
-                        coinbase_timelock_min: cli.coinbase_timelock_min,
-                        source_hash: nockchain_types::tx_engine::common::Hash::from_limbs(&[0, 0, 0, 0, 0]),
+                        coinbase_timelock_min: settlement.coinbase_timelock_min,
+                        source_hash: nockchain_types::tx_engine::common::Hash::from_limbs(&[
+                            0, 0, 0, 0, 0,
+                        ]),
                         recipient_pkh: pkh,
-                        settlement: settlement.clone(),
-                        fee: cli.tx_fee,
-                        signing_key: sk,
+                        settlement: settlement_data.clone(),
+                        fee: settlement.tx_fee,
+                        signing_key: *sk,
                     };
 
                     match tx_builder::build_settlement_tx(&mut app, &params).await {
@@ -454,7 +606,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             tx_id_str = raw_tx.id.to_base58();
                             println!("    tx-id: {tx_id_str}");
                             println!("    NoteData: 5 Vesl settlement keys");
-                            println!("    Fee: {} nicks", cli.tx_fee);
+                            println!("    Fee: {} nicks", settlement.tx_fee);
 
                             // --- [9c] Submit to chain ---
                             println!("[9c] Submitting transaction to chain...");
@@ -464,7 +616,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                     tx_accepted = true;
                                 }
                                 Ok(false) => {
-                                    println!("    Transaction timed out (not accepted in time).");
+                                    println!(
+                                        "    Transaction timed out (not accepted in time)."
+                                    );
                                 }
                                 Err(e) => {
                                     eprintln!("    Transaction submission error: {e}");
@@ -475,19 +629,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             eprintln!("    Failed to build settlement tx: {e}");
                         }
                     }
-                } else if cli.submit && utxos.is_empty() {
+                } else if settlement.auto_submit && utxos.is_empty() {
                     eprintln!("    No spendable UTXOs found — cannot submit settlement tx.");
-                    eprintln!("    Ensure the fakenet miner is using PKH: {pkh_b58}");
+                    eprintln!("    Ensure the miner is using PKH: {pkh_b58}");
                 }
 
                 // --- [9d] Scan for existing Vesl settlements ---
                 println!("[9d] Scanning for Vesl settlement notes...");
                 match client
-                    .find_settlement_notes_by_pkh(&pkh_b58, cli.coinbase_timelock_min)
+                    .find_settlement_notes_by_pkh(
+                        &pkh_b58,
+                        settlement.coinbase_timelock_min,
+                    )
                     .await
                 {
                     Ok(notes) if !notes.is_empty() => {
-                        println!("    Found {} Vesl settlement(s) on-chain:", notes.len());
+                        println!(
+                            "    Found {} Vesl settlement(s) on-chain:",
+                            notes.len()
+                        );
                         for s in &notes {
                             println!("      {s}");
                         }
@@ -505,10 +665,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 eprintln!("    (Pipeline completed locally; chain settlement skipped)");
             }
         }
+    } else if settlement.mode != SettlementMode::Local {
+        println!("\n[9] Settlement mode: {} (no signing key configured)", settlement.mode);
+        if settlement.mode == SettlementMode::Dumbnet {
+            eprintln!("    Run `hull wallet init --keygen` and set VESL_SEED_PHRASE.");
+        }
     }
 
     // --- Summary ---
     println!("\n=== Pipeline Summary ===");
+    println!("  Settlement mode:  {}", settlement.mode);
     println!("  Chunks ingested:  {}", chunks.len());
     println!("  Merkle root:      {}", merkle::format_tip5(&root));
     println!("  Query:            {:?}", query);
@@ -516,10 +682,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("  LLM output:       {} bytes", output.len());
     println!("  Note settled:     {}", !effects.is_empty() || all_valid);
     println!("  All proofs valid: {}", all_valid);
-    if cli.chain_endpoint.is_some() {
+    if settlement.chain_endpoint.is_some() {
         println!("  Chain connected:  true");
     }
-    if cli.submit {
+    if settlement.auto_submit {
         println!("  TX submitted:     {}", tx_accepted);
         if !tx_id_str.is_empty() {
             println!("  TX ID:            {}", tx_id_str);

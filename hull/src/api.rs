@@ -25,7 +25,7 @@
 
 use std::sync::Arc;
 
-use axum::extract::State;
+use axum::extract::{DefaultBodyLimit, State};
 use axum::http::StatusCode;
 use axum::routing::{get, post};
 use axum::{Json, Router};
@@ -36,9 +36,8 @@ use nockapp::NockApp;
 use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
 
-use nockchain_math::belt::Belt;
-
 use crate::chain;
+use crate::config::SettlementConfig;
 use crate::llm::{self, LlmProvider};
 use crate::merkle::MerkleTree;
 use crate::noun_builder;
@@ -65,14 +64,8 @@ pub struct AppState {
     pub retriever: Box<dyn Retriever + Send + Sync>,
     /// Count of settled notes (incremented per successful /query).
     pub note_counter: u64,
-    /// Chain endpoint for on-chain settlement submission.
-    pub chain_endpoint: Option<String>,
-    /// Signing key for settlement transactions.
-    pub signing_key: Option<[Belt; 8]>,
-    /// Coinbase timelock minimum.
-    pub coinbase_timelock_min: u64,
-    /// Transaction fee.
-    pub tx_fee: u64,
+    /// Settlement configuration (mode + chain settings).
+    pub settlement: SettlementConfig,
     /// Nock stack size the kernel was booted with.
     pub stack_size: NockStackSize,
 }
@@ -165,6 +158,7 @@ pub struct StatusResponse {
     pub merkle_root: Option<String>,
     pub notes_settled: u64,
     pub hull_id: u64,
+    pub settlement_mode: String,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -189,6 +183,7 @@ pub fn router(state: SharedState) -> Router {
         .route("/ingest", post(ingest_handler))
         .route("/query", post(query_handler))
         .route("/prove", post(prove_handler))
+        .layer(DefaultBodyLimit::max(10 * 1024 * 1024)) // 10 MB
         .with_state(state)
 }
 
@@ -211,6 +206,7 @@ async fn status(State(state): State<SharedState>) -> Json<StatusResponse> {
         merkle_root,
         notes_settled: st.note_counter,
         hull_id: st.hull_id,
+        settlement_mode: st.settlement.mode.to_string(),
     })
 }
 
@@ -317,6 +313,18 @@ async fn query_handler(
         ));
     }
 
+    // Validate retriever indices before use
+    for h in &hits {
+        if h.chunk_index >= st.chunks.len() {
+            return Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorBody {
+                    error: format!("retriever returned invalid index {}", h.chunk_index),
+                }),
+            ));
+        }
+    }
+
     let retrieval_infos: Vec<RetrievalInfo> = hits
         .iter()
         .map(|h| {
@@ -364,6 +372,7 @@ async fn query_handler(
         results: retrievals,
         prompt,
         output: output.clone(),
+        page: 0,
     };
 
     // Create note + settle via kernel poke
@@ -393,58 +402,64 @@ async fn query_handler(
 
     let root_hex = crate::merkle::format_tip5(&root);
 
-    // --- On-chain submission (if chain endpoint + signing key configured) ---
+    // --- On-chain submission (if settlement config allows it) ---
     let mut tx_id: Option<String> = None;
     let mut tx_accepted: Option<bool> = None;
 
-    if let (Some(endpoint), Some(sk)) = (&st.chain_endpoint, &st.signing_key) {
-        let note_for_settlement = Note {
-            id: note_id,
-            hull: st.hull_id,
-            root,
-            state: NoteState::Settled,
-        };
-        let settlement = chain::SettlementData::from_settlement(&note_for_settlement, &manifest);
-        let pkh = signing::pubkey_hash(&signing::derive_pubkey(sk));
-        let pkh_b58 = pkh.to_base58();
+    if let (Some(_), Some(sk)) = (&st.settlement.chain_endpoint, &st.settlement.signing_key)
+    {
+        if st.settlement.can_submit() {
+            let note_for_settlement = Note {
+                id: note_id,
+                hull: st.hull_id,
+                root,
+                state: NoteState::Settled,
+            };
+            let settlement_data =
+                chain::SettlementData::from_settlement(&note_for_settlement, &manifest);
+            let pkh = signing::pubkey_hash(&signing::derive_pubkey(sk));
+            let pkh_b58 = pkh.to_base58();
 
-        let chain_config = chain::ChainConfig::local(endpoint);
-        if let Ok(mut client) = chain::ChainClient::connect(chain_config).await {
-            let balance = client
-                .get_balance_by_pkh(&pkh_b58, st.coinbase_timelock_min)
-                .await;
+            if let Some(chain_config) = st.settlement.chain_config() {
+            if let Ok(mut client) = chain::ChainClient::connect(chain_config).await {
+                let balance = client
+                    .get_balance_by_pkh(&pkh_b58, st.settlement.coinbase_timelock_min)
+                    .await;
 
-            if let Ok(ref bal) = balance {
-                let utxos = chain::extract_spendable_utxos(bal);
-                if let Some(utxo) = utxos.iter().max_by_key(|u| u.amount) {
-                    let params = tx_builder::SettlementTxParams {
-                        input_name: nockchain_types::tx_engine::common::Name::new(
-                            utxo.name.clone(),
-                            utxo.last_name.clone(),
-                        ),
-                        input_note_hash: utxo.last_name.clone(),
-                        input_amount: utxo.amount,
-                        is_coinbase: true,
-                        coinbase_timelock_min: st.coinbase_timelock_min,
-                        source_hash: nockchain_types::tx_engine::common::Hash::from_limbs(
-                            &[0, 0, 0, 0, 0],
-                        ),
-                        recipient_pkh: pkh,
-                        settlement,
-                        fee: st.tx_fee,
-                        signing_key: *sk,
-                    };
+                if let Ok(ref bal) = balance {
+                    let utxos = chain::extract_spendable_utxos(bal);
+                    if let Some(utxo) = utxos.iter().max_by_key(|u| u.amount) {
+                        let params = tx_builder::SettlementTxParams {
+                            input_name: nockchain_types::tx_engine::common::Name::new(
+                                utxo.name.clone(),
+                                utxo.last_name.clone(),
+                            ),
+                            input_note_hash: utxo.last_name.clone(),
+                            input_amount: utxo.amount,
+                            is_coinbase: true,
+                            coinbase_timelock_min: st.settlement.coinbase_timelock_min,
+                            source_hash: nockchain_types::tx_engine::common::Hash::from_limbs(
+                                &[0, 0, 0, 0, 0],
+                            ),
+                            recipient_pkh: pkh,
+                            settlement: settlement_data,
+                            fee: st.settlement.tx_fee,
+                            signing_key: *sk,
+                        };
 
-                    if let Ok(raw_tx) = tx_builder::build_settlement_tx(&mut st.app, &params).await
-                    {
-                        let id_b58 = raw_tx.id.to_base58();
-                        tx_id = Some(id_b58.clone());
-                        match client.submit_and_wait(raw_tx, &id_b58).await {
-                            Ok(accepted) => tx_accepted = Some(accepted),
-                            Err(_) => tx_accepted = Some(false),
+                        if let Ok(raw_tx) =
+                            tx_builder::build_settlement_tx(&mut st.app, &params).await
+                        {
+                            let id_b58 = raw_tx.id.to_base58();
+                            tx_id = Some(id_b58.clone());
+                            match client.submit_and_wait(raw_tx, &id_b58).await {
+                                Ok(accepted) => tx_accepted = Some(accepted),
+                                Err(_) => tx_accepted = Some(false),
+                            }
                         }
                     }
                 }
+            }
             }
         }
     }
@@ -507,6 +522,18 @@ async fn prove_handler(
         ));
     }
 
+    // Validate retriever indices before use
+    for h in &hits {
+        if h.chunk_index >= st.chunks.len() {
+            return Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorBody {
+                    error: format!("retriever returned invalid index {}", h.chunk_index),
+                }),
+            ));
+        }
+    }
+
     let retrieval_infos: Vec<RetrievalInfo> = hits
         .iter()
         .map(|h| {
@@ -554,6 +581,7 @@ async fn prove_handler(
         results: retrievals,
         prompt,
         output: output.clone(),
+        page: 0,
     };
 
     // Create note + prove via kernel poke (%prove instead of %settle)
@@ -665,54 +693,60 @@ async fn prove_handler(
     let mut tx_id: Option<String> = None;
     let mut tx_accepted: Option<bool> = None;
 
-    if let (Some(endpoint), Some(sk)) = (&st.chain_endpoint, &st.signing_key) {
-        let note_for_settlement = Note {
-            id: note_id,
-            hull: st.hull_id,
-            root,
-            state: NoteState::Settled,
-        };
-        let settlement = chain::SettlementData::from_settlement(&note_for_settlement, &manifest);
-        let pkh = signing::pubkey_hash(&signing::derive_pubkey(sk));
-        let pkh_b58 = pkh.to_base58();
+    if let (Some(_), Some(sk)) = (&st.settlement.chain_endpoint, &st.settlement.signing_key)
+    {
+        if st.settlement.can_submit() {
+            let note_for_settlement = Note {
+                id: note_id,
+                hull: st.hull_id,
+                root,
+                state: NoteState::Settled,
+            };
+            let settlement_data =
+                chain::SettlementData::from_settlement(&note_for_settlement, &manifest);
+            let pkh = signing::pubkey_hash(&signing::derive_pubkey(sk));
+            let pkh_b58 = pkh.to_base58();
 
-        let chain_config = chain::ChainConfig::local(endpoint);
-        if let Ok(mut client) = chain::ChainClient::connect(chain_config).await {
-            let balance = client
-                .get_balance_by_pkh(&pkh_b58, st.coinbase_timelock_min)
-                .await;
+            if let Some(chain_config) = st.settlement.chain_config() {
+            if let Ok(mut client) = chain::ChainClient::connect(chain_config).await {
+                let balance = client
+                    .get_balance_by_pkh(&pkh_b58, st.settlement.coinbase_timelock_min)
+                    .await;
 
-            if let Ok(ref bal) = balance {
-                let utxos = chain::extract_spendable_utxos(bal);
-                if let Some(utxo) = utxos.iter().max_by_key(|u| u.amount) {
-                    let params = tx_builder::SettlementTxParams {
-                        input_name: nockchain_types::tx_engine::common::Name::new(
-                            utxo.name.clone(),
-                            utxo.last_name.clone(),
-                        ),
-                        input_note_hash: utxo.last_name.clone(),
-                        input_amount: utxo.amount,
-                        is_coinbase: true,
-                        coinbase_timelock_min: st.coinbase_timelock_min,
-                        source_hash: nockchain_types::tx_engine::common::Hash::from_limbs(
-                            &[0, 0, 0, 0, 0],
-                        ),
-                        recipient_pkh: pkh,
-                        settlement,
-                        fee: st.tx_fee,
-                        signing_key: *sk,
-                    };
+                if let Ok(ref bal) = balance {
+                    let utxos = chain::extract_spendable_utxos(bal);
+                    if let Some(utxo) = utxos.iter().max_by_key(|u| u.amount) {
+                        let params = tx_builder::SettlementTxParams {
+                            input_name: nockchain_types::tx_engine::common::Name::new(
+                                utxo.name.clone(),
+                                utxo.last_name.clone(),
+                            ),
+                            input_note_hash: utxo.last_name.clone(),
+                            input_amount: utxo.amount,
+                            is_coinbase: true,
+                            coinbase_timelock_min: st.settlement.coinbase_timelock_min,
+                            source_hash: nockchain_types::tx_engine::common::Hash::from_limbs(
+                                &[0, 0, 0, 0, 0],
+                            ),
+                            recipient_pkh: pkh,
+                            settlement: settlement_data,
+                            fee: st.settlement.tx_fee,
+                            signing_key: *sk,
+                        };
 
-                    if let Ok(raw_tx) = tx_builder::build_settlement_tx(&mut st.app, &params).await
-                    {
-                        let id_b58 = raw_tx.id.to_base58();
-                        tx_id = Some(id_b58.clone());
-                        match client.submit_and_wait(raw_tx, &id_b58).await {
-                            Ok(accepted) => tx_accepted = Some(accepted),
-                            Err(_) => tx_accepted = Some(false),
+                        if let Ok(raw_tx) =
+                            tx_builder::build_settlement_tx(&mut st.app, &params).await
+                        {
+                            let id_b58 = raw_tx.id.to_base58();
+                            tx_id = Some(id_b58.clone());
+                            match client.submit_and_wait(raw_tx, &id_b58).await {
+                                Ok(accepted) => tx_accepted = Some(accepted),
+                                Err(_) => tx_accepted = Some(false),
+                            }
                         }
                     }
                 }
+            }
             }
         }
     }
@@ -739,10 +773,10 @@ async fn prove_handler(
 // ---------------------------------------------------------------------------
 
 /// Start the HTTP API server on the given port.
-pub async fn serve(state: SharedState, port: u16) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn serve(state: SharedState, port: u16, bind_addr: &str) -> Result<(), Box<dyn std::error::Error>> {
     let app = router(state);
-    let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{port}")).await?;
-    println!("Vesl Hull API listening on http://0.0.0.0:{port}");
+    let listener = tokio::net::TcpListener::bind(format!("{bind_addr}:{port}")).await?;
+    println!("Vesl Hull API listening on http://{bind_addr}:{port}");
     println!("  POST /ingest  — upload documents");
     println!("  POST /query   — retrieve + infer + settle");
     println!("  POST /prove   — retrieve + infer + settle + STARK proof (needs --stack-size large)");
@@ -765,6 +799,7 @@ mod tests {
     use nockapp::kernel::boot;
     use tower::ServiceExt;
 
+    use crate::config::SettlementConfig;
     use crate::retrieve::KeywordRetriever;
 
     /// Create a test AppState with the real kernel.
@@ -785,10 +820,7 @@ mod tests {
             llm: Box::new(llm::StubProvider),
             retriever: Box::new(KeywordRetriever),
             note_counter: 0,
-            chain_endpoint: None,
-            signing_key: None,
-            coinbase_timelock_min: 1,
-            tx_fee: 3000,
+            settlement: SettlementConfig::local(),
             stack_size: NockStackSize::Normal,
         }))
     }

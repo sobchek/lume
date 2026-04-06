@@ -32,6 +32,7 @@ DEMO_DOCS="$PROJECT_ROOT/demo/docs"
 
 MANAGE_FAKENET=true
 USE_CHAIN=true
+SETTLEMENT_MODE="fakenet"
 OLLAMA_URL="${OLLAMA_URL:-}"
 OLLAMA_MODEL="${OLLAMA_MODEL:-llama3.2}"
 HULL_PORT="${HULL_PORT:-3000}"
@@ -44,8 +45,10 @@ HULL_PID=""
 # Parse flags
 while [[ $# -gt 0 ]]; do
     case "$1" in
+        --fakenet)     SETTLEMENT_MODE="fakenet"; MANAGE_FAKENET=true; USE_CHAIN=true; shift ;;
+        --dumbnet)     SETTLEMENT_MODE="dumbnet"; MANAGE_FAKENET=false; USE_CHAIN=true; shift ;;
         --no-fakenet)  MANAGE_FAKENET=false; shift ;;
-        --no-chain)    USE_CHAIN=false; MANAGE_FAKENET=false; shift ;;
+        --no-chain)    SETTLEMENT_MODE="local"; USE_CHAIN=false; MANAGE_FAKENET=false; shift ;;
         --ollama-url)  OLLAMA_URL="$2"; shift 2 ;;
         --ollama-model) OLLAMA_MODEL="$2"; shift 2 ;;
         --port)        HULL_PORT="$2"; shift 2 ;;
@@ -53,6 +56,8 @@ while [[ $# -gt 0 ]]; do
             echo "Usage: $0 [OPTIONS]"
             echo ""
             echo "Options:"
+            echo "  --fakenet                 Explicit fakenet mode (default chain behavior)"
+            echo "  --dumbnet                 Dumbnet mode (use running node, no fakenet boot)"
             echo "  --no-fakenet              Skip fakenet boot (use running instance)"
             echo "  --no-chain                Local-only demo (no chain interaction)"
             echo "  --ollama-url URL          Use real LLM (e.g., http://localhost:11434)"
@@ -65,6 +70,7 @@ while [[ $# -gt 0 ]]; do
             echo "  MINING_PKH                Miner PKH for fakenet (base58)"
             echo "  NOCKCHAIN_GRPC_ADDR       Chain gRPC address (default: 127.0.0.1:9090)"
             echo "  WAIT_BLOCKS_TIMEOUT       Seconds to wait for mined blocks (default: 120)"
+            echo "  VESL_SEED_PHRASE          Seed phrase for dumbnet key derivation"
             exit 0
             ;;
         *)
@@ -134,7 +140,7 @@ trap cleanup EXIT
 # Prerequisite checks
 # ---------------------------------------------------------------------------
 
-banner "Vesl: Sovereign RAG on Nockchain"
+banner "Vesl: Verifiable RAG on Nockchain"
 
 step "0" "Checking prerequisites..."
 
@@ -262,6 +268,7 @@ HULL_FLAGS=(
     --port "$HULL_PORT"
     --docs "$DEMO_DOCS"
     --top-k 3
+    --settlement-mode "$SETTLEMENT_MODE"
 )
 
 if [[ -n "$OLLAMA_URL" ]]; then
@@ -272,7 +279,6 @@ if [[ "$USE_CHAIN" == "true" ]]; then
     HULL_FLAGS+=(
         --chain-endpoint "http://$NOCKCHAIN_GRPC_ADDR"
         --wallet-address "$MINING_PKH"
-        --submit
         --coinbase-timelock-min 1
     )
 fi
@@ -471,8 +477,7 @@ if [[ "$USE_CHAIN" == "true" ]]; then
     NOTE_COUNT=$(echo "$BALANCE_OUTPUT" | grep -o '[0-9]* note(s)' | head -1 | grep -o '[0-9]*' || echo "0")
     field "On-chain notes:" "$NOTE_COUNT"
 else
-    step "7" "Chain interaction skipped (--no-chain)"
-    step "8" "Skipped"
+    step "7" "Local settlement complete (use --no-fakenet or full mode for chain)"
 fi
 
 # ---------------------------------------------------------------------------
@@ -514,21 +519,11 @@ fi
 fi
 
 echo ""
-echo -e "${BOLD}  Security model (6 layers):${RESET}"
-echo "     Mold boundary    -> structural errors caught"
-echo "     Merkle verify    -> tampered chunks rejected"
-echo "     Prompt rebuild   -> injection attacks blocked"
-echo "     settle-note      -> crash on ANY failure (no valid STARK)"
-echo "     Registration     -> uncommitted roots rejected"
-echo "     Replay guard     -> duplicate settlements blocked"
-
-echo ""
-echo -e "${BOLD}  API endpoints:${RESET}"
-echo "     POST /ingest  -> $HULL_URL/ingest"
-echo "     POST /query   -> $HULL_URL/query"
-echo "     GET  /status  -> $HULL_URL/status"
-echo "     GET  /health  -> $HULL_URL/health"
-
+if [[ "$USE_CHAIN" != "true" ]]; then
+echo -e "${DIM}  Run with a live fakenet to see on-chain settlement:${RESET}"
+echo -e "${DIM}    ./scripts/demo.sh                    # boots fakenet + settles on-chain${RESET}"
+echo -e "${DIM}    ./scripts/demo.sh --no-fakenet       # uses running fakenet instance${RESET}"
+fi
 echo ""
 echo -e "${DIM}  Server still running at $HULL_URL (Ctrl+C or wait for cleanup)${RESET}"
 echo ""

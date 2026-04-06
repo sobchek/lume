@@ -223,6 +223,7 @@ async fn ollama_live_settlement() {
         results,
         prompt: prompt.clone(),
         output: llm_output.clone(),
+        page: 0,
     };
     println!("Manifest built: {} retrievals", manifest.results.len());
 

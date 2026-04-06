@@ -248,6 +248,7 @@ async fn fakenet_local_pipeline_produces_settlement() {
         results: retrievals,
         prompt,
         output: "Q3 revenue was $4.2M with $800K risk exposure.".into(),
+        page: 0,
     };
 
     // Settle
@@ -371,6 +372,7 @@ async fn fakenet_reject_tampered_settlement() {
         results: tampered_retrievals,
         prompt: "test\nTAMPERED data".into(),
         output: "tampered output".into(),
+        page: 0,
     };
 
     let note = Note {
@@ -439,10 +441,7 @@ async fn fakenet_http_api_full_pipeline() {
         llm: Box::new(hull::llm::StubProvider),
         retriever: Box::new(hull::retrieve::KeywordRetriever),
         note_counter: 0,
-        chain_endpoint: None,
-        signing_key: None,
-        coinbase_timelock_min: 1,
-        tx_fee: 3000,
+        settlement: hull::config::SettlementConfig::local(),
         stack_size: nockapp::kernel::boot::NockStackSize::Normal,
     }));
 
@@ -1295,6 +1294,7 @@ async fn fakenet_on_chain_settlement_roundtrip() {
         results: retrievals,
         prompt,
         output: "Q3 revenue was $4.2M with $800K risk exposure.".into(),
+        page: 0,
     };
 
     let note = Note { id: 1, hull: 7, root, state: NoteState::Pending };
@@ -1525,6 +1525,7 @@ async fn fakenet_synthetic_settlement_confirmation() {
         ],
         prompt: format!("Summarize Q3\n{}\n{}", chunks[0].dat, chunks[1].dat),
         output: "Q3 revenue was $4.2M with $800K risk exposure.".into(),
+        page: 0,
     };
 
     let expected = SettlementData {

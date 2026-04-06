@@ -1,4 +1,4 @@
-::  lib/vesl-logic.hoon: Merkle, manifest & settlement for Sovereign-RAG
+::  lib/vesl-logic.hoon: Merkle, manifest & settlement for Verifiable RAG
 ::
 ::  Pure functions for Tier 3/4 (Nock-Prover & Settlement) operations.
 ::  Hash primitive: tip5 (algebraic, STARK-native) via zeke.hoon.
@@ -59,6 +59,7 @@
 ++  verify-chunk
   |=  [chunk=@ proof=(list [hash=@ side=?]) expected-root=@]
   ^-  ?
+  ?:  (gth (lent proof) 64)  %.n
   =/  cur=@  (hash-leaf chunk)
   |-
   ?~  proof
@@ -100,7 +101,7 @@
 ::  then prompt reconstruction and comparison.
 ::
 ++  verify-manifest
-  |=  $:  mani=[query=@t results=(list [chunk=[id=@ dat=@t] proof=(list [hash=@ side=?]) score=@ud]) prompt=@t output=@t]
+  |=  $:  mani=[query=@t results=(list [chunk=[id=@ dat=@t] proof=(list [hash=@ side=?]) score=@ud]) prompt=@t output=@t page=@ud]
           expected-root=@
       ==
   ^-  ?
@@ -133,7 +134,7 @@
 ::
 ++  settle-note
   |=  $:  current-note=[id=@ hull=@ root=@ state=[%pending ~]]
-          mani=[query=@t results=(list [chunk=[id=@ dat=@t] proof=(list [hash=@ side=?]) score=@ud]) prompt=@t output=@t]
+          mani=[query=@t results=(list [chunk=[id=@ dat=@t] proof=(list [hash=@ side=?]) score=@ud]) prompt=@t output=@t page=@ud]
           expected-root=@
       ==
   ^-  [id=@ hull=@ root=@ state=[%settled ~]]

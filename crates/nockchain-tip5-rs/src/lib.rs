@@ -7,7 +7,7 @@
 //!
 //! Hoon's `hash-leaf` / `hash-pair` (via `zeke.hoon`) and this crate's
 //! functions (via `nockchain-math`) produce identical digests, ensuring
-//! cross-VM compatibility for ZK-circuit verification.
+//! cross-runtime compatibility for ZK-circuit verification.
 //!
 //! ## Leaf hashing
 //!
@@ -449,12 +449,12 @@ mod tests {
         assert_eq!(a, b);
     }
 
-    // -- Test vector: known hash for cross-VM validation -------------------
+    // -- Test vector: known hash for cross-runtime validation ---------------
 
     #[test]
     fn enterprise_root_is_stable() {
         // This root hash must match the Hoon-side computation.
-        // If this test fails after a nockchain-math update, cross-VM
+        // If this test fails after a nockchain-math update, cross-runtime
         // alignment is broken and needs investigation.
         let leaves = enterprise_leaves();
         let root1 = MerkleTree::build(&leaves).root();

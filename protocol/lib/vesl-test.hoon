@@ -74,7 +74,7 @@
 ::
 ::  Same as assert-eq but with a hash-specific trace message.
 ::  On failure, both hash values appear in the crash trace
-::  for debugging cross-VM alignment issues.
+::  for debugging cross-runtime alignment issues.
 ::
 ::    ?>  (assert-hash-eq (hash-leaf 'data') expected-hash)
 ::

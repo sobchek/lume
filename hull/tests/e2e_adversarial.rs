@@ -75,6 +75,7 @@ fn valid_manifest(chunks: &[Chunk], tree: &MerkleTree) -> Manifest {
         results: retrievals,
         prompt,
         output: "Q3 revenue was $4.2M with $800K risk exposure.".into(),
+        page: 0,
     }
 }
 
@@ -144,6 +145,7 @@ async fn adversarial_1_tampered_chunk_data() {
         results: tampered_retrievals,
         prompt,
         output: "Tampered output.".into(),
+        page: 0,
     };
 
     let note = Note { id: 1, hull: 7, root, state: NoteState::Pending };
@@ -206,6 +208,7 @@ async fn adversarial_2_proof_path_swap() {
         results: retrievals,
         prompt,
         output: "Output.".into(),
+        page: 0,
     };
 
     let note = Note { id: 1, hull: 7, root, state: NoteState::Pending };
@@ -268,6 +271,7 @@ async fn adversarial_3_prompt_injection() {
         results: retrievals,
         prompt: injected_prompt,
         output: "Attacker-controlled output.".into(),
+        page: 0,
     };
 
     let note = Note { id: 1, hull: 7, root, state: NoteState::Pending };
@@ -483,6 +487,7 @@ async fn adversarial_7_oversized_payload() {
         results: retrievals,
         prompt,
         output: "Large payload test.".into(),
+        page: 0,
     };
 
     let note = Note { id: 1, hull: 7, root, state: NoteState::Pending };
@@ -546,10 +551,7 @@ mod http_api {
             llm: Box::new(StubProvider),
             retriever: Box::new(KeywordRetriever),
             note_counter: 0,
-            chain_endpoint: None,
-            signing_key: None,
-            coinbase_timelock_min: 1,
-            tx_fee: 3000,
+            settlement: hull::config::SettlementConfig::local(),
             stack_size: nockapp::kernel::boot::NockStackSize::Normal,
         }));
 

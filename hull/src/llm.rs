@@ -12,7 +12,7 @@
 //! The convention is: `query + 0x0a + chunk0.dat + 0x0a + chunk1.dat + ...`
 //! (newline = `\n` = byte `0x0a`).
 //!
-//! The cross-VM test (Phase 9) proved hash alignment between Rust and Hoon
+//! The cross-runtime test (Phase 9) proved hash alignment between Rust and Hoon
 //! using this exact format. Any deviation breaks Merkle settlement.
 
 use std::future::Future;

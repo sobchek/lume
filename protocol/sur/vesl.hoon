@@ -1,11 +1,11 @@
-::  sur/vesl.hoon: Sovereign-RAG core data structures
+::  sur/vesl.hoon: Verified-RAG core data structures
 ::
 ::  Tier 1-4 types for the Hull architecture.
 ::  Designed for ZK-circuit translation via Zorp ZKVM.
 ::  All hash fields are bare @ for minimal prover overhead.
 ::
 |%
-::  Tier 1: Sovereign Storage
+::  Tier 1: Storage
 ::
 +$  chunk-id  @
 +$  chunk  [id=chunk-id dat=@t]
@@ -25,6 +25,7 @@
       results=(list retrieval)
       prompt=@t
       output=@t
+      page=@ud
   ==
 ::
 ::  Tier 3: Nock-Prover
@@ -52,12 +53,12 @@
 ::
 ::  Tier 5: ABI Boundary
 ::
-::  The strict type for cross-VM settlement payloads.
+::  The strict type for cross-runtime settlement payloads.
 ::  Defines the exact noun structure the Rust Hull must produce.
 ::
 +$  settlement-payload
   $:  note=[id=@ hull=@ root=@ state=[%pending ~]]
-      mani=[query=@t results=(list [chunk=[id=@ dat=@t] proof=(list [hash=@ side=?]) score=@ud]) prompt=@t output=@t]
+      mani=[query=@t results=(list [chunk=[id=@ dat=@t] proof=(list [hash=@ side=?]) score=@ud]) prompt=@t output=@t page=@ud]
       expected-root=@
   ==
 --
