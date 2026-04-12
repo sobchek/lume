@@ -1,11 +1,11 @@
-//! Integration test: vesl-mantle <-> hull type alignment.
+//! Integration test: vesl-core <-> hull type alignment.
 //!
 //! Verifies the Sigil -> Vigil -> settle poke pipeline works
-//! end-to-end using vesl-mantle types re-exported through hull.
+//! end-to-end using vesl-core types re-exported through hull.
 
-use vesl_mantle::{Sigil, Vigil, RagVerifier, Anchor};
-use vesl_mantle::types::{Chunk, Retrieval, Manifest, Note, NoteState};
-use vesl_mantle::anchor::build_settle_poke;
+use vesl_core::{Sigil, Vigil, RagVerifier, Anchor};
+use vesl_core::types::{Chunk, Retrieval, Manifest, Note, NoteState};
+use vesl_core::anchor::build_settle_poke;
 
 #[test]
 fn sigil_vigil_settle_pipeline() {
@@ -104,7 +104,7 @@ fn rag_verifier_through_graft_payload() {
 
     let data = serde_json::to_vec(&manifest).unwrap();
     let verifier = RagVerifier;
-    assert!(vesl_mantle::IntentVerifier::verify(&verifier, &data, &root));
+    assert!(vesl_core::IntentVerifier::verify(&verifier, &data, &root));
 }
 
 #[tokio::test]

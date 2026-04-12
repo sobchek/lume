@@ -8,7 +8,7 @@
 use nock_noun_rs::NounSlab;
 use nockchain_tip5_rs::verify_proof;
 
-use vesl_mantle::types::{GraftPayload, IntentVerifier, ProofNode, Tip5Hash};
+use vesl_core::types::{GraftPayload, IntentVerifier, ProofNode, Tip5Hash};
 
 use crate::api::Field;
 
@@ -65,7 +65,7 @@ impl IntentVerifier for FieldVerifier {
         // Generic hull: settle = register root with note metadata.
         // The anchor kernel's %register poke is the settlement primitive
         // for domains that don't need a custom settle handler.
-        Ok(vesl_mantle::noun_builder::build_register_poke(
+        Ok(vesl_core::noun_builder::build_register_poke(
             payload.note.hull,
             &payload.expected_root,
         ))
@@ -79,7 +79,7 @@ impl IntentVerifier for FieldVerifier {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use vesl_mantle::{Sigil, format_tip5};
+    use vesl_core::{Sigil, format_tip5};
 
     #[test]
     fn field_verifier_valid() {

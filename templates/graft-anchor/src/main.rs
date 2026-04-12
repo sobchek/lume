@@ -1,7 +1,7 @@
 use std::error::Error;
 use std::fs;
 
-use vesl_mantle::{Vigil, Sigil, Tip5Hash};
+use vesl_core::{Vigil, Sigil, Tip5Hash};
 use nock_noun_rs::{make_tag_in, make_cord_in};
 use nockapp::kernel::boot;
 use nockapp::noun::slab::NounSlab;

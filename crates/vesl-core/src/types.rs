@@ -1,6 +1,6 @@
-//! Re-exported types for Mantle consumers.
+//! Re-exported types for vesl-core consumers.
 //!
-//! Callers can `use vesl_mantle::{Ink, Grip, Tip5Hash, ProofNode}`
+//! Callers can `use vesl_core::{Ink, Grip, Tip5Hash, ProofNode}`
 //! without direct deps on the lower crates.
 
 // tip5 primitives

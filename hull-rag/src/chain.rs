@@ -415,8 +415,8 @@ impl Default for ChainConfig {
     }
 }
 
-impl From<vesl_mantle::ChainConfig> for ChainConfig {
-    fn from(cc: vesl_mantle::ChainConfig) -> Self {
+impl From<vesl_core::ChainConfig> for ChainConfig {
+    fn from(cc: vesl_core::ChainConfig) -> Self {
         Self {
             endpoint: cc.endpoint,
             poll_interval: cc.poll_interval,

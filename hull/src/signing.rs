@@ -1,6 +1,6 @@
-//! Signing — re-exports generic signing from vesl-mantle + demo key.
+//! Signing — re-exports generic signing from vesl-core + demo key.
 
-pub use vesl_mantle::signing::{
+pub use vesl_core::signing::{
     SigningError, derive_pubkey, pubkey_hash, sign, key_from_seed_phrase,
 };
 

@@ -109,14 +109,14 @@ This gives you `/registered/<hull>`, `/settled/<note-id>`, and `/root/<hull>` fo
 In your `Cargo.toml`:
 
 ```toml
-vesl-mantle = { path = "../../crates/vesl-mantle" }
+vesl-core = { path = "../../crates/vesl-core" }
 nock-noun-rs = { path = "../../crates/nock-noun-rs" }
 ```
 
 ## Step 8: Commit Data with Sigil
 
 ```rust
-use vesl_mantle::Sigil;
+use vesl_core::Sigil;
 
 let mut sigil = Sigil::new();
 let leaves: Vec<&[u8]> = documents.iter()
@@ -149,7 +149,7 @@ Note: `make_tag_in` handles tags longer than 8 bytes (like `vesl-register`) that
 ## Step 10: Verify Proofs with Vigil
 
 ```rust
-use vesl_mantle::Vigil;
+use vesl_core::Vigil;
 
 let mut vigil = Vigil::new();
 vigil.register_root(root);

@@ -1,7 +1,7 @@
 use std::error::Error;
 use std::fs;
 
-use vesl_mantle::{Sigil, Tip5Hash};
+use vesl_core::{Sigil, Tip5Hash};
 use nock_noun_rs::make_tag_in;
 use nockapp::kernel::boot;
 use nockapp::noun::slab::NounSlab;
@@ -80,7 +80,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     println!("\n=== step 4: local proof verification ===\n");
     for (i, intent) in intents.iter().enumerate() {
         let proof = sigil.proof(i);
-        let leaf_hash = vesl_mantle::sigil::hash_leaf(intent.as_bytes());
+        let leaf_hash = vesl_core::sigil::hash_leaf(intent.as_bytes());
         println!(
             "  intent {}: leaf_hash={:?}, proof_len={}",
             i, &leaf_hash[..2], proof.len()

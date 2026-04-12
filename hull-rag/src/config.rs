@@ -1,6 +1,6 @@
 //! Settlement mode configuration — hull-rag layer.
 //!
-//! Re-exports generic config from vesl-mantle and adds:
+//! Re-exports generic config from vesl-core and adds:
 //! - VeslConfig (domain-specific toml fields like ollama_url)
 //! - clap::ValueEnum for SettlementMode
 //! - load_config() for reading vesl.toml
@@ -9,7 +9,7 @@ use std::path::Path;
 
 use serde::Deserialize;
 
-pub use vesl_mantle::config::{
+pub use vesl_core::config::{
     SettlementConfig, SettlementMode, SettlementToml,
 };
 

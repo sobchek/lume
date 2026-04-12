@@ -1,9 +1,9 @@
 //! Nock noun construction — RAG-specific builders.
 //!
-//! Re-exports generic builders from vesl-mantle and adds RAG-specific
+//! Re-exports generic builders from vesl-core and adds RAG-specific
 //! structures (manifest, settlement payload, settle/prove pokes).
 
-pub use vesl_mantle::noun_builder::{
+pub use vesl_core::noun_builder::{
     hash_to_noun, hash_to_noun_generic,
     proof_node_to_noun, proof_list_to_noun,
     chunk_to_noun, retrieval_to_noun, retrieval_list_to_noun,

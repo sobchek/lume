@@ -19,7 +19,7 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
 use tower_http::limit::RequestBodyLimitLayer;
 
-use vesl_mantle::{format_tip5, MerkleTree};
+use vesl_core::{format_tip5, MerkleTree};
 
 use crate::config::SettlementConfig;
 use crate::verify::field_to_leaf_bytes;
@@ -282,7 +282,7 @@ async fn commit_handler(
 
     // Register root with kernel
     let mut st = state.lock().await;
-    let register_poke = vesl_mantle::noun_builder::build_register_poke(st.hull_id, &root);
+    let register_poke = vesl_core::noun_builder::build_register_poke(st.hull_id, &root);
     let _effects = tokio::time::timeout(
         std::time::Duration::from_secs(30),
         st.app.poke(SystemWire.to_wire(), register_poke),
@@ -342,7 +342,7 @@ async fn settle_handler(
     save_note_counter(&st.output_dir, st.note_counter);
 
     // Poke kernel with register (settlement primitive for generic hull)
-    let settle_poke = vesl_mantle::noun_builder::build_register_poke(st.hull_id, &root);
+    let settle_poke = vesl_core::noun_builder::build_register_poke(st.hull_id, &root);
     let effects = tokio::time::timeout(
         std::time::Duration::from_secs(30),
         st.app.poke(SystemWire.to_wire(), settle_poke),

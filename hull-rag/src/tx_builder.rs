@@ -1,12 +1,12 @@
 //! RAG-specific transaction builder — settlement orchestration.
 //!
-//! Re-exports generic tx_builder from vesl-mantle and adds:
+//! Re-exports generic tx_builder from vesl-core and adds:
 //! - SettlementTxParams (references hull-rag's SettlementData)
 //! - build_settlement_tx (orchestrates kernel pokes + NoteData encoding)
 //! - settlement_to_note_data (thin wrapper)
 //! - Diagnostic poke helpers
 
-pub use vesl_mantle::tx_builder::{
+pub use vesl_core::tx_builder::{
     kernel_sig_hash, kernel_tx_id, jam_seeds_manual, jam_spends_manual,
     extract_hash_from_effect, bytes_to_atom,
 };

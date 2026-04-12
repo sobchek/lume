@@ -1,4 +1,4 @@
-//! vesl-mantle — High-level Vesl SDK
+//! vesl-core — High-level Vesl SDK
 //!
 //! Four tiers, each a different weight class:
 //!
@@ -21,7 +21,7 @@ pub mod signing;
 pub mod types;
 
 // Top-level re-exports so callers can write:
-//   use vesl_mantle::{Sigil, Vigil, Tip5Hash, ProofNode};
+//   use vesl_core::{Sigil, Vigil, Tip5Hash, ProofNode};
 pub use sigil::Sigil;
 pub use vigil::Vigil;
 pub use anchor::Anchor;

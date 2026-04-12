@@ -31,7 +31,7 @@ bytes = "1"
 # --- Vesl extracted crates ---
 nock-noun-rs = { path = "../crates/nock-noun-rs" }
 nockchain-tip5-rs = { path = "../crates/nockchain-tip5-rs", features = ["serde"] }
-vesl-mantle = { path = "../crates/vesl-mantle", features = ["clap"] }
+vesl-core = { path = "../crates/vesl-core", features = ["clap"] }
 
 # --- Nockchain crates (pinned to monorepo at ../../nockchain) ---
 nockvm = { path = "../../nockchain/crates/nockvm/rust/nockvm" }

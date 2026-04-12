@@ -1,6 +1,6 @@
 //! Settlement mode configuration — hull layer.
 //!
-//! Re-exports generic config from vesl-mantle and adds:
+//! Re-exports generic config from vesl-core and adds:
 //! - HullConfig (domain-specific toml fields)
 //! - load_config() for reading hull.toml / vesl.toml
 //! - resolve_with_demo_key() convenience wrapper
@@ -9,7 +9,7 @@ use std::path::Path;
 
 use serde::Deserialize;
 
-pub use vesl_mantle::config::{
+pub use vesl_core::config::{
     SettlementConfig, SettlementMode, SettlementToml,
 };
 

@@ -15,7 +15,7 @@ nockvm = { git = "https://github.com/nockchain/nockchain.git", rev = "{{nockapp_
 nockvm_macros = { git = "https://github.com/nockchain/nockchain.git", rev = "{{nockapp_commit_hash}}" }
 
 # Vesl tentacles — Ink for commitment, Grip for verification
-vesl-mantle = { path = "../../crates/vesl-mantle" }
+vesl-core = { path = "../../crates/vesl-core" }
 nock-noun-rs = { path = "../../crates/nock-noun-rs" }
 
 tokio = { version = "1.32", features = ["rt-multi-thread", "macros"] }
