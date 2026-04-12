@@ -29,7 +29,7 @@ For RAG verification, also copy:
 ```
 hoon/
   sur/vesl.hoon          # RAG type definitions (manifest, chunk, etc.)
-  lib/vesl-logic.hoon    # RAG verification gates (verify-manifest)
+  lib/rag-logic.hoon    # RAG verification gates (verify-manifest)
 ```
 
 These live in `protocol/sur/` and `protocol/lib/` in the Vesl repo. For non-RAG gates, only `vesl-graft.hoon` and `vesl-merkle.hoon` are required — see [Custom Gates](#custom-gates--beyond-rag) below.
@@ -41,7 +41,7 @@ At the top of your kernel (`hoon/app/app.hoon`):
 ```hoon
 /-  *vesl             :: RAG types (only needed for RAG gates)
 /+  *vesl-graft       :: state + poke dispatcher
-/+  *vesl-logic       :: RAG verification gates (only for RAG)
+/+  *rag-logic       :: RAG verification gates (only for RAG)
 /=  *  /common/wrapper
 ```
 
@@ -224,7 +224,7 @@ The Graft is domain-agnostic. The examples above use a RAG verification gate (ca
 
 ### How to Use a Custom Gate
 
-1. **Import what you need.** For hash-based gates: `/+  *vesl-merkle`. For RAG: `/+  *vesl-logic` and `/-  *vesl`. For your own logic: import your own library.
+1. **Import what you need.** For hash-based gates: `/+  *vesl-merkle`. For RAG: `/+  *rag-logic` and `/-  *vesl`. For your own logic: import your own library.
 
 2. **Define the gate inline** in your poke delegation:
 
@@ -256,7 +256,7 @@ The Graft is domain-agnostic. The examples above use a RAG verification gate (ca
 
 ### The graft-intent Template
 
-[`graft-intent`](./graft-intent/) is a working example of a non-RAG gate. No `sur/vesl.hoon`, no `vesl-logic.hoon`. The gate is one line: hash the data, compare to root. Read it to see the pattern stripped to the minimum.
+[`graft-intent`](./graft-intent/) is a working example of a non-RAG gate. No `sur/vesl.hoon`, no `rag-logic.hoon`. The gate is one line: hash the data, compare to root. Read it to see the pattern stripped to the minimum.
 
 ## Reference Templates
 

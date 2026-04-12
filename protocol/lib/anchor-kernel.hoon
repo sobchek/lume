@@ -21,7 +21,7 @@
 ::  Output:   assets/anchor.jam
 ::
 /-  *vesl
-/+  *vesl-logic
+/+  *rag-logic
 /=  *  /common/wrapper
 ::
 =>

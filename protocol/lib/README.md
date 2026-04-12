@@ -78,7 +78,7 @@ For gates that return `?` (loobean):
 
 ```hoon
 /-  *vesl
-/+  *vesl-logic
+/+  *rag-logic
 /+  *vesl-test
 ::
 =/  h0  (hash-leaf 'alpha')

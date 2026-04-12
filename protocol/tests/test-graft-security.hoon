@@ -8,7 +8,7 @@
 ::
 /-  *vesl
 /+  *vesl-merkle
-/+  *vesl-logic
+/+  *rag-logic
 /+  *vesl-graft
 ::
 ::  ============================================

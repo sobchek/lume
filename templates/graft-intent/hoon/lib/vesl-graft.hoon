@@ -11,7 +11,7 @@
 ::
 ::  Usage:
 ::    /+  *vesl-graft
-::    /+  *vesl-logic    :: for RAG gate (or your own domain logic)
+::    /+  *rag-logic    :: for RAG gate (or your own domain logic)
 ::    ...your kernel...
 ::    +$  my-state  [vesl=vesl-state ...your-fields...]
 ::    ...in poke arm...

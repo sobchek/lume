@@ -10,7 +10,7 @@
 ::  data matching the Rust Hull's output.
 ::
 /-  *vesl
-/+  *vesl-logic
+/+  *rag-logic
 /+  *vesl-entrypoint
 ::
 ::  ============================================

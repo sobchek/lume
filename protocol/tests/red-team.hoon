@@ -9,7 +9,7 @@
 ::  Compilation success = all attacks blocked = protocol secure.
 ::
 /-  *vesl
-/+  *vesl-logic
+/+  *rag-logic
 ::
 ::  ============================================================
 ::  SHARED SETUP: 4-leaf Merkle tree — hedge fund Q3 data vault

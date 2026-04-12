@@ -6,7 +6,7 @@
 ::  Compilation success = all assertions passed.
 ::
 /-  *vesl
-/+  *vesl-logic
+/+  *rag-logic
 /+  *vesl-entrypoint
 ::
 ::  ============================================

@@ -11,7 +11,7 @@
 ::  BEFORE reaching any logic gates. The Nock VM enforces this.
 ::
 /-  *vesl
-/+  *vesl-logic
+/+  *rag-logic
 ::
 |%
 ::

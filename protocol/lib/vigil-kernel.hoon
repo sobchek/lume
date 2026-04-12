@@ -17,7 +17,7 @@
 ::  Output:   assets/vigil.jam
 ::
 /-  *vesl
-/+  *vesl-logic
+/+  *rag-logic
 /=  *  /common/wrapper
 ::
 =>

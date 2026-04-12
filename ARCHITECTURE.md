@@ -69,7 +69,7 @@ The settled note is encoded as NoteData entries in a standard Nockchain Note (St
 ```
 protocol/                        Hoon protocol layer (trust anchor)
   sur/vesl.hoon                  Type definitions (chunk, manifest, note, etc.)
-  lib/vesl-logic.hoon            Verification gates (hash, verify, settle)
+  lib/rag-logic.hoon            Verification gates (hash, verify, settle)
   lib/vesl-kernel.hoon           NockApp kernel (load/peek/poke lifecycle)
   lib/vesl-entrypoint.hoon       ABI boundary (jam/cue serialization)
   lib/vesl-prover.hoon           STARK proof generation (arbitrary Nock)

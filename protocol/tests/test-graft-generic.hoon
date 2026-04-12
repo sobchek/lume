@@ -1,7 +1,7 @@
 ::  protocol/tests/test-graft-generic.hoon: gate-agnostic Graft test
 ::
 ::  Tests the generic Graft with a non-RAG verification gate.
-::  No /-  *vesl, no /+  *vesl-logic — proves the Graft works
+::  No /-  *vesl, no /+  *rag-logic — proves the Graft works
 ::  for any computation type, not just RAG manifests.
 ::  Compilation success = all assertions passed.
 ::

@@ -19,7 +19,7 @@
 ::  Compiled: hoonc --new protocol/lib/vesl-kernel.hoon hoon/
 ::
 /-  *vesl
-/+  *vesl-logic
+/+  *rag-logic
 /+  *vesl-prover
 /+  *vesl-merkle
 /=  *  /common/wrapper

@@ -6,7 +6,7 @@
 ::  Compilation success = all assertions passed.
 ::
 /-  *vesl
-/+  *vesl-logic
+/+  *rag-logic
 ::
 ::  Build 4-leaf Merkle tree — hedge fund Q3 data vault
 ::

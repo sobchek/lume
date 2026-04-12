@@ -5,7 +5,7 @@
 ::  Compilation success = all tests passed.
 ::
 /-  *vesl
-/+  *vesl-logic
+/+  *rag-logic
 /+  *vesl-test
 ::
 ::  ============================================

@@ -1,7 +1,7 @@
 ::  graft-intent — NockApp with custom (non-RAG) verification gate
 ::
 ::  Proves the Graft works without RAG types. No sur/vesl.hoon,
-::  no vesl-logic.hoon. The verification gate is a simple
+::  no rag-logic.hoon. The verification gate is a simple
 ::  hash-comparison: hash the data, compare to expected root.
 ::
 ::  Domain: an intent registry. Users declare intents (strings),

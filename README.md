@@ -23,7 +23,7 @@ The demo ingests documents, retrieves against a query, verifies in the Hoon kern
 ```
 protocol/                 Hoon — the trust anchor
   sur/vesl.hoon             types
-  lib/vesl-logic.hoon       verification gates (tip5 Merkle, prompt integrity)
+  lib/rag-logic.hoon       verification gates (tip5 Merkle, prompt integrity)
   lib/vesl-kernel.hoon      NockApp kernel (poke/peek/load)
   lib/vesl-prover.hoon      STARK proof generation
   lib/vesl-verifier.hoon    STARK proof verification

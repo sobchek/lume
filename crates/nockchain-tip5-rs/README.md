@@ -63,7 +63,7 @@ let n = tree.leaf_count();               // number of original leaves
 
 Odd-count levels are padded by duplicating the last node. This is
 standard Merkle convention and matches the Hoon-side implementation
-in `vesl-logic.hoon`.
+in `rag-logic.hoon`.
 
 ### Cross-VM encoding
 
@@ -110,7 +110,7 @@ different root. This is tested. This is proven. This is the point.
 
 ## Cross-VM alignment
 
-This crate is the Rust mirror of Hoon's `vesl-logic.hoon`. Both sides:
+This crate is the Rust mirror of Hoon's `rag-logic.hoon`. Both sides:
 
 1. Split atoms into 7-byte chunks (each < 2^56 < Goldilocks prime)
 2. Prepend the chunk count as a belt

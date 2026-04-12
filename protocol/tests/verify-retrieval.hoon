@@ -5,7 +5,7 @@
 ::  Compilation success = all assertions passed.
 ::
 /-  *vesl
-/+  *vesl-logic
+/+  *rag-logic
 ::
 ::  Build 4-leaf Merkle tree — enterprise scenario chunks
 ::

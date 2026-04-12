@@ -1,4 +1,4 @@
-::  lib/vesl-logic.hoon: RAG manifest verification & settlement
+::  lib/rag-logic.hoon: RAG manifest verification & settlement
 ::
 ::  RAG-specific gates: prompt reconstruction, manifest verification,
 ::  and note settlement.  Merkle primitives live in vesl-merkle.hoon.

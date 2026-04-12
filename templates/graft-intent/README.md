@@ -12,7 +12,7 @@ The verification gate here is one line:
 =((hash-leaf ;;(@ data)) expected-root)
 ```
 
-Hash the data, compare to root. No manifest types, no `sur/vesl.hoon`, no `vesl-logic.hoon`. The Graft is domain-agnostic — the gate is yours.
+Hash the data, compare to root. No manifest types, no `sur/vesl.hoon`, no `rag-logic.hoon`. The Graft is domain-agnostic — the gate is yours.
 
 ## What's Grafted
 

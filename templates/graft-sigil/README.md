@@ -94,7 +94,7 @@ cargo run
 hoon/
   app/app.hoon          — the kernel (domain + graft)
   lib/vesl-graft.hoon   — composable state and poke dispatcher
-  lib/vesl-logic.hoon   — RAG verification gates
+  lib/rag-logic.hoon   — RAG verification gates
   lib/vesl-merkle.hoon  — Merkle primitives (tip5)
   sur/vesl.hoon          — type definitions
   common/wrapper.hoon  — NockApp protocol

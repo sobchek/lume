@@ -1,7 +1,7 @@
 //! Standalone tip5 Merkle tree for Nockchain.
 //!
 //! Provides tip5 hash functions, Merkle tree construction, proof generation,
-//! and proof verification. Mathematical mirror of Hoon's `vesl-logic.hoon`.
+//! and proof verification. Mathematical mirror of Hoon's `rag-logic.hoon`.
 //!
 //! # tip5 Hash Alignment
 //!

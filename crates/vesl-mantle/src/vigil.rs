@@ -1,7 +1,7 @@
 //! Vigil — Verification (mid tier)
 //!
 //! Verify proofs against roots. Pure math, no kernel.
-//! Manifest verification mirrors vesl-logic.hoon's ++verify-manifest.
+//! Manifest verification mirrors rag-logic.hoon's ++verify-manifest.
 
 use std::collections::HashSet;
 
@@ -49,7 +49,7 @@ impl Vigil {
 
     /// Verify a full manifest (all chunks + prompt integrity).
     ///
-    /// Mirrors vesl-logic.hoon ++verify-manifest:
+    /// Mirrors rag-logic.hoon ++verify-manifest:
     /// 1. For each retrieval, verify chunk proof against root
     /// 2. Collect chunk dats in order
     /// 3. Reconstruct prompt: query + "\n" + chunk0.dat + "\n" + chunk1.dat + ...
@@ -76,7 +76,7 @@ impl Vigil {
         }
 
         // Reconstruct prompt: query + \n + dat0 + \n + dat1 + ...
-        // Mirrors ++build-prompt from vesl-logic.hoon
+        // Mirrors ++build-prompt from rag-logic.hoon
         let mut built = manifest.query.clone();
         for dat in &dats {
             built.push('\n');
