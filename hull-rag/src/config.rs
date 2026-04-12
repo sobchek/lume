@@ -1,9 +1,9 @@
-//! Settlement mode configuration — hull layer.
+//! Settlement mode configuration — hull-rag layer.
 //!
 //! Re-exports generic config from vesl-mantle and adds:
-//! - HullConfig (domain-specific toml fields)
-//! - load_config() for reading hull.toml / vesl.toml
-//! - resolve_with_demo_key() convenience wrapper
+//! - VeslConfig (domain-specific toml fields like ollama_url)
+//! - clap::ValueEnum for SettlementMode
+//! - load_config() for reading vesl.toml
 
 use std::path::Path;
 
@@ -16,13 +16,14 @@ pub use vesl_mantle::config::{
 use crate::signing;
 
 // ---------------------------------------------------------------------------
-// HullConfig — toml fields for the generic hull
+// VeslConfig — domain-specific toml fields
 // ---------------------------------------------------------------------------
 
 /// Deserializable config from `vesl.toml`.
 #[derive(Debug, Default, Deserialize)]
-pub struct HullConfig {
+pub struct VeslConfig {
     pub nock_home: Option<String>,
+    pub ollama_url: Option<String>,
     pub api_port: Option<u16>,
     pub settlement_mode: Option<String>,
     pub chain_endpoint: Option<String>,
@@ -31,8 +32,8 @@ pub struct HullConfig {
     pub accept_timeout_secs: Option<u64>,
 }
 
-impl From<&HullConfig> for SettlementToml {
-    fn from(v: &HullConfig) -> Self {
+impl From<&VeslConfig> for SettlementToml {
+    fn from(v: &VeslConfig) -> Self {
         Self {
             settlement_mode: v.settlement_mode.clone(),
             chain_endpoint: v.chain_endpoint.clone(),
@@ -44,16 +45,16 @@ impl From<&HullConfig> for SettlementToml {
 }
 
 /// Load config from a TOML file. Returns defaults if the file doesn't exist.
-pub fn load_config(path: &Path) -> HullConfig {
+pub fn load_config(path: &Path) -> VeslConfig {
     match std::fs::read_to_string(path) {
         Ok(contents) => match toml::from_str(&contents) {
             Ok(cfg) => cfg,
             Err(e) => {
-                eprintln!("WARNING: failed to parse {}: {e} -- using default config", path.display());
-                HullConfig::default()
+                eprintln!("WARNING: failed to parse {}: {e} — using default config", path.display());
+                VeslConfig::default()
             }
         },
-        Err(_) => HullConfig::default(),
+        Err(_) => VeslConfig::default(),
     }
 }
 
@@ -61,7 +62,10 @@ pub fn load_config(path: &Path) -> HullConfig {
 // Convenience: resolve with demo key for fakenet
 // ---------------------------------------------------------------------------
 
-/// Resolve settlement config with hull defaults (demo key for fakenet).
+/// Resolve settlement config with hull-rag defaults (demo key for fakenet).
+///
+/// Thin wrapper around `SettlementConfig::resolve()` that passes the
+/// demo signing key as `default_signing_key`.
 pub fn resolve_with_demo_key(
     cli_mode: Option<SettlementMode>,
     cli_chain_endpoint: Option<String>,
@@ -70,7 +74,7 @@ pub fn resolve_with_demo_key(
     cli_coinbase_timelock_min: Option<u64>,
     cli_accept_timeout: Option<u64>,
     cli_seed_phrase: Option<String>,
-    toml: &HullConfig,
+    toml: &VeslConfig,
 ) -> SettlementConfig {
     let settlement_toml = SettlementToml::from(toml);
     SettlementConfig::resolve(
@@ -96,7 +100,7 @@ mod tests {
 
     #[test]
     fn default_is_local() {
-        let toml = HullConfig::default();
+        let toml = VeslConfig::default();
         let cfg = resolve_with_demo_key(None, None, false, None, None, None, None, &toml);
         assert_eq!(cfg.mode, SettlementMode::Local);
         assert!(cfg.chain_endpoint.is_none());
@@ -106,7 +110,7 @@ mod tests {
 
     #[test]
     fn chain_endpoint_infers_fakenet() {
-        let toml = HullConfig::default();
+        let toml = VeslConfig::default();
         let cfg = resolve_with_demo_key(
             None,
             Some("http://localhost:9090".into()),
@@ -123,8 +127,15 @@ mod tests {
     }
 
     #[test]
+    fn submit_flag_infers_fakenet() {
+        let toml = VeslConfig::default();
+        let cfg = resolve_with_demo_key(None, None, true, None, None, None, None, &toml);
+        assert_eq!(cfg.mode, SettlementMode::Fakenet);
+    }
+
+    #[test]
     fn explicit_local_ignores_chain_endpoint() {
-        let toml = HullConfig::default();
+        let toml = VeslConfig::default();
         let cfg = resolve_with_demo_key(
             Some(SettlementMode::Local),
             Some("http://localhost:9090".into()),
@@ -142,7 +153,7 @@ mod tests {
 
     #[test]
     fn fakenet_defaults() {
-        let toml = HullConfig::default();
+        let toml = VeslConfig::default();
         let cfg = resolve_with_demo_key(
             Some(SettlementMode::Fakenet),
             None,
@@ -161,8 +172,31 @@ mod tests {
     }
 
     #[test]
+    fn toml_overrides_defaults() {
+        let toml = VeslConfig {
+            tx_fee: Some(5000),
+            coinbase_timelock_min: Some(10),
+            chain_endpoint: Some("http://custom:9090".into()),
+            ..Default::default()
+        };
+        let cfg = resolve_with_demo_key(
+            Some(SettlementMode::Fakenet),
+            None,
+            false,
+            None,
+            None,
+            None,
+            None,
+            &toml,
+        );
+        assert_eq!(cfg.tx_fee, 5000);
+        assert_eq!(cfg.coinbase_timelock_min, 10);
+        assert_eq!(cfg.chain_endpoint.as_deref(), Some("http://custom:9090"));
+    }
+
+    #[test]
     fn cli_overrides_toml() {
-        let toml = HullConfig {
+        let toml = VeslConfig {
             tx_fee: Some(5000),
             ..Default::default()
         };
@@ -178,6 +212,58 @@ mod tests {
         );
         assert_eq!(cfg.tx_fee, 7000);
         assert_eq!(cfg.chain_endpoint.as_deref(), Some("http://cli:9090"));
+    }
+
+    #[test]
+    fn toml_settlement_mode_parsed() {
+        let toml = VeslConfig {
+            settlement_mode: Some("fakenet".into()),
+            ..Default::default()
+        };
+        let cfg = resolve_with_demo_key(None, None, false, None, None, None, None, &toml);
+        assert_eq!(cfg.mode, SettlementMode::Fakenet);
+    }
+
+    #[test]
+    fn dumbnet_with_seed_phrase() {
+        let toml = VeslConfig {
+            chain_endpoint: Some("http://node:9090".into()),
+            ..Default::default()
+        };
+        let cfg = resolve_with_demo_key(
+            Some(SettlementMode::Dumbnet),
+            None,
+            false,
+            None,
+            None,
+            None,
+            Some("test seed phrase for key derivation".into()),
+            &toml,
+        );
+        assert_eq!(cfg.mode, SettlementMode::Dumbnet);
+        assert!(cfg.signing_key.is_some());
+        assert!(cfg.auto_submit);
+        assert_eq!(cfg.accept_timeout_secs, 900);
+        assert!(!signing::is_demo_key(&cfg.signing_key.unwrap()));
+    }
+
+    #[test]
+    fn can_submit_checks() {
+        let local = SettlementConfig::local();
+        assert!(!local.can_submit());
+
+        let toml = VeslConfig::default();
+        let fakenet = resolve_with_demo_key(
+            Some(SettlementMode::Fakenet),
+            None,
+            false,
+            None,
+            None,
+            None,
+            None,
+            &toml,
+        );
+        assert!(fakenet.can_submit());
     }
 
     #[test]

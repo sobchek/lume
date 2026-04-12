@@ -55,7 +55,7 @@ tail -3 "$PROJECT_ROOT/.fakenet/miner.log" 2>/dev/null || echo "    (no miner lo
 # 3. Start hull in serve mode with fakenet settlement
 echo "[3] Starting hull (serve + fakenet + submit + stack-size large)..."
 cd "$PROJECT_ROOT"
-hull/target/release/hull \
+hull-rag/target/release/hull-rag \
     --new --serve \
     --stack-size large \
     --settlement-mode fakenet \

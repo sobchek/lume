@@ -1,84 +1,28 @@
-//! Nock noun construction and jam serialization for the Vesl settlement payload.
+//! Nock noun construction — RAG-specific builders.
 //!
-//! Uses `nock-noun-rs` for generic noun building and `nockchain-tip5-rs` for
-//! hash encoding. This module adds Vesl-specific structure builders matching
-//! `protocol/lib/vesl-entrypoint.hoon:+$settlement-payload`.
+//! Re-exports generic builders from vesl-mantle and adds RAG-specific
+//! structures (manifest, settlement payload, settle/prove pokes).
+
+pub use vesl_mantle::noun_builder::{
+    hash_to_noun, hash_to_noun_generic,
+    proof_node_to_noun, proof_list_to_noun,
+    chunk_to_noun, retrieval_to_noun, retrieval_list_to_noun,
+    pending_note_to_noun, build_register_poke,
+};
 
 use nock_noun_rs::{
-    make_atom, make_atom_in, make_cord, make_loobean,
-    new_stack, Cell, D, NounSlab, NockStack, Noun, NounAllocator, T,
+    make_atom, make_atom_in, make_cord,
+    new_stack, NounSlab, NockStack, Noun, T,
     jam,
 };
-use nockchain_tip5_rs::tip5_to_atom_le_bytes;
 
 #[cfg(test)]
 use crate::merkle::MerkleTree;
 use crate::types::*;
 
 // ---------------------------------------------------------------------------
-// Vesl-specific atom builders
+// RAG-specific builders
 // ---------------------------------------------------------------------------
-
-/// Convert a tip5 hash `[u64; 5]` to a Nock atom.
-///
-/// Uses base-p polynomial encoding: `a + b*P + c*P^2 + d*P^3 + e*P^4`
-/// matching Hoon's `digest-to-atom:tip5`.
-fn hash_to_noun(stack: &mut NockStack, hash: &Tip5Hash) -> Noun {
-    let le_bytes = tip5_to_atom_le_bytes(hash);
-    make_atom(stack, &le_bytes)
-}
-
-/// Convert a tip5 hash to a Nock atom using any allocator.
-fn hash_to_noun_generic(alloc: &mut impl NounAllocator, hash: &Tip5Hash) -> Noun {
-    let le_bytes = tip5_to_atom_le_bytes(hash);
-    make_atom_in(alloc, &le_bytes)
-}
-
-// ---------------------------------------------------------------------------
-// Structure Builders — mirror protocol/sur/vesl.hoon
-// ---------------------------------------------------------------------------
-
-/// `+$proof-node  [hash=@ side=?]`
-fn proof_node_to_noun(stack: &mut NockStack, node: &ProofNode) -> Noun {
-    let h = hash_to_noun(stack, &node.hash);
-    let s = make_loobean(node.side);
-    T(stack, &[h, s])
-}
-
-/// `(list proof-node)` -> null-terminated right-leaning cell tree.
-fn proof_list_to_noun(stack: &mut NockStack, proof: &[ProofNode]) -> Noun {
-    let mut list = D(0); // null terminator
-    for node in proof.iter().rev() {
-        let item = proof_node_to_noun(stack, node);
-        list = Cell::new(stack, item, list).as_noun();
-    }
-    list
-}
-
-/// `+$chunk  [id=chunk-id dat=@t]`
-fn chunk_to_noun(stack: &mut NockStack, chunk: &Chunk) -> Noun {
-    let id = D(chunk.id);
-    let dat = make_cord(stack, &chunk.dat);
-    T(stack, &[id, dat])
-}
-
-/// `+$retrieval  [=chunk proof=merkle-proof score=@ud]`
-fn retrieval_to_noun(stack: &mut NockStack, r: &Retrieval) -> Noun {
-    let c = chunk_to_noun(stack, &r.chunk);
-    let p = proof_list_to_noun(stack, &r.proof);
-    let s = D(r.score);
-    T(stack, &[c, p, s])
-}
-
-/// `(list retrieval)` -> null-terminated right-leaning.
-fn retrieval_list_to_noun(stack: &mut NockStack, results: &[Retrieval]) -> Noun {
-    let mut list = D(0);
-    for r in results.iter().rev() {
-        let item = retrieval_to_noun(stack, r);
-        list = Cell::new(stack, item, list).as_noun();
-    }
-    list
-}
 
 /// `+$manifest  [query=@t results=(list retrieval) prompt=@t output=@t page=@ud]`
 fn manifest_to_noun(stack: &mut NockStack, m: &Manifest) -> Noun {
@@ -86,24 +30,8 @@ fn manifest_to_noun(stack: &mut NockStack, m: &Manifest) -> Noun {
     let results = retrieval_list_to_noun(stack, &m.results);
     let prompt = make_cord(stack, &m.prompt);
     let output = make_cord(stack, &m.output);
-    let page = D(m.page);
+    let page = nock_noun_rs::D(m.page);
     T(stack, &[query, results, prompt, output, page])
-}
-
-/// `note=[id=@ hull=@ root=@ state=[%pending ~]]`
-///
-/// In Nock: `[id [hull [root [%pending 0]]]]`
-fn pending_note_to_noun(stack: &mut NockStack, note: &Note) -> Noun {
-    assert!(
-        matches!(note.state, NoteState::Pending),
-        "settlement payload requires %pending note"
-    );
-    let id = D(note.id);
-    let hull = D(note.hull);
-    let root = hash_to_noun(stack, &note.root);
-    let tag = make_atom(stack, b"pending");
-    let state = Cell::new(stack, tag, D(0)).as_noun(); // [%pending ~]
-    T(stack, &[id, hull, root, state])
 }
 
 // ---------------------------------------------------------------------------
@@ -193,19 +121,6 @@ pub fn build_prove_poke(
     let tag = make_atom_in(&mut slab, b"prove");
     let payload_atom = make_atom_in(&mut slab, &jam_bytes);
     let cause = T(&mut slab, &[tag, payload_atom]);
-    slab.set_root(cause);
-    slab
-}
-
-/// Build a `%register` poke cause in a NounSlab.
-///
-/// Constructs `[%register hull=@ root=@]`.
-pub fn build_register_poke(hull_id: u64, root: &Tip5Hash) -> NounSlab {
-    let mut slab = NounSlab::new();
-    let tag = make_atom_in(&mut slab, b"register");
-    let id = D(hull_id);
-    let root_noun = hash_to_noun_generic(&mut slab, root);
-    let cause = T(&mut slab, &[tag, id, root_noun]);
     slab.set_root(cause);
     slab
 }
@@ -332,65 +247,5 @@ mod tests {
 
         let rest = outer.tail();
         assert!(rest.is_cell(), "rest [mani root] must be a cell");
-    }
-
-    #[test]
-    fn loobean_encoding() {
-        assert_eq!(make_loobean(true).as_atom().unwrap().as_u64().unwrap(), 0);
-        assert_eq!(make_loobean(false).as_atom().unwrap().as_u64().unwrap(), 1);
-    }
-
-    #[test]
-    fn cord_encoding() {
-        let mut stack = new_stack();
-        let abc = make_cord(&mut stack, "abc");
-        let val = abc.as_atom().unwrap().as_u64().unwrap();
-        assert_eq!(val, 97 + 98 * 256 + 99 * 65536);
-    }
-
-    #[test]
-    fn tag_pending_encoding() {
-        let mut stack = new_stack();
-        let tag = make_atom(&mut stack, b"pending");
-        let expected: u64 = b"pending"
-            .iter()
-            .enumerate()
-            .map(|(i, &b)| (b as u64) << (i * 8))
-            .sum();
-        let val = tag.as_atom().unwrap().as_u64().unwrap();
-        assert_eq!(val, expected);
-    }
-
-    #[test]
-    fn list_encoding_structure() {
-        let mut stack = new_stack();
-
-        let proof = vec![
-            ProofNode {
-                hash: [0xAA; 5],
-                side: true,
-            },
-            ProofNode {
-                hash: [0xBB; 5],
-                side: false,
-            },
-        ];
-        let list = proof_list_to_noun(&mut stack, &proof);
-
-        assert!(list.is_cell(), "list must be a cell");
-        let first = list.as_cell().unwrap();
-        assert!(
-            first.head().is_cell(),
-            "first element must be a cell [hash side]"
-        );
-
-        let rest = first.tail();
-        assert!(rest.is_cell(), "rest must be a cell [node1 0]");
-        let second = rest.as_cell().unwrap();
-        assert!(second.head().is_cell(), "second element must be a cell");
-
-        let term = second.tail();
-        assert!(term.is_atom(), "terminator must be atom 0");
-        assert_eq!(term.as_atom().unwrap().as_u64().unwrap(), 0);
     }
 }

@@ -11,9 +11,13 @@
 //! Kraken users get the full pipeline.
 
 pub mod anchor;
+pub mod config;
+pub mod noun_builder;
+pub mod tx_builder;
 pub mod vigil;
 pub mod sigil;
 pub mod kraken;
+pub mod signing;
 pub mod types;
 
 // Top-level re-exports so callers can write:
@@ -31,3 +35,5 @@ pub use types::{
     GraftPayload, IntentVerifier, NounSlab,
 };
 pub use anchor::RagVerifier;
+pub use signing::{SigningError, derive_pubkey, pubkey_hash, sign, key_from_seed_phrase};
+pub use config::{SettlementMode, SettlementConfig, SettlementToml};

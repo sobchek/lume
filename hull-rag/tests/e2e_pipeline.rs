@@ -55,7 +55,7 @@ async fn kernel_boots_and_accepts_pokes() {
 /// Verify: Merkle proofs are valid for a constructed tree (pure Rust, no kernel).
 #[tokio::test]
 async fn all_merkle_proofs_valid_for_multi_document_ingest() {
-    use hull::merkle::{self, MerkleTree};
+    use hull_rag::merkle::{self, MerkleTree};
 
     // Simulate 10 document chunks (DEV.md verification: "Ingest 10 text files")
     let chunks: Vec<String> = (0..10)
@@ -81,7 +81,7 @@ async fn all_merkle_proofs_valid_for_multi_document_ingest() {
 /// Verify: tree is deterministic (same leaves → same root).
 #[tokio::test]
 async fn merkle_tree_deterministic_across_builds() {
-    use hull::merkle::MerkleTree;
+    use hull_rag::merkle::MerkleTree;
 
     let chunks: Vec<&[u8]> = vec![
         b"alpha document",

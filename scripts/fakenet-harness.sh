@@ -31,7 +31,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-HULL_DIR="$PROJECT_ROOT/hull"
+HULL_DIR="$PROJECT_ROOT/hull-rag"
 
 # Load environment
 ENV_FILE="${ENV_FILE:-$SCRIPT_DIR/.env.fakenet}"

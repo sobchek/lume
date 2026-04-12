@@ -415,6 +415,16 @@ impl Default for ChainConfig {
     }
 }
 
+impl From<vesl_mantle::ChainConfig> for ChainConfig {
+    fn from(cc: vesl_mantle::ChainConfig) -> Self {
+        Self {
+            endpoint: cc.endpoint,
+            poll_interval: cc.poll_interval,
+            accept_timeout: cc.accept_timeout,
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // ChainClient — gRPC client for Nockchain interaction
 // ---------------------------------------------------------------------------

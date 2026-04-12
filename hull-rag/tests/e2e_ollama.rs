@@ -28,11 +28,11 @@ use nockapp::kernel::boot;
 use nockapp::wire::{SystemWire, Wire};
 use nockapp::NockApp;
 
-use hull::llm::{self, LlmProvider, OllamaProvider};
-use hull::merkle::MerkleTree;
-use hull::noun_builder;
-use hull::retrieve::{KeywordRetriever, Retriever, SCORE_SCALE};
-use hull::types::{Chunk, Manifest, Note, NoteState, Retrieval};
+use hull_rag::llm::{self, LlmProvider, OllamaProvider};
+use hull_rag::merkle::MerkleTree;
+use hull_rag::noun_builder;
+use hull_rag::retrieve::{KeywordRetriever, Retriever, SCORE_SCALE};
+use hull_rag::types::{Chunk, Manifest, Note, NoteState, Retrieval};
 
 // ---------------------------------------------------------------------------
 // Shared test configuration
@@ -270,7 +270,7 @@ async fn ollama_prompt_hash_consistency() {
     let prompt = llm::build_prompt(query, &retrieved);
 
     // Compute tip5 hash of prompt BEFORE LLM call
-    let hash_before = hull::merkle::hash_leaf(prompt.as_bytes());
+    let hash_before = hull_rag::merkle::hash_leaf(prompt.as_bytes());
 
     // Call Ollama (the prompt string should not be mutated)
     let provider = OllamaProvider::new(&url, &model);
@@ -280,7 +280,7 @@ async fn ollama_prompt_hash_consistency() {
         .expect("Ollama must respond");
 
     // Compute tip5 hash of prompt AFTER LLM call
-    let hash_after = hull::merkle::hash_leaf(prompt.as_bytes());
+    let hash_after = hull_rag::merkle::hash_leaf(prompt.as_bytes());
 
     assert_eq!(
         hash_before, hash_after,

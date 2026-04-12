@@ -1,11 +1,15 @@
-//! Raw transaction builder for Vesl settlement on Nockchain.
+//! RAG-specific transaction builder — settlement orchestration.
 //!
-//! Phase 3.5.2b: Constructs and signs raw transactions in Rust with custom
-//! NoteData, using the Hoon kernel's tx-engine hashable infrastructure for
-//! byte-exact sig-hash and tx-id computation.
-//!
-//! The sig-hash and tx-id are computed via two kernel pokes (%sig-hash, %tx-id)
-//! rather than reimplementing Hoon's ~300-line recursive hashable tree in Rust.
+//! Re-exports generic tx_builder from vesl-mantle and adds:
+//! - SettlementTxParams (references hull-rag's SettlementData)
+//! - build_settlement_tx (orchestrates kernel pokes + NoteData encoding)
+//! - settlement_to_note_data (thin wrapper)
+//! - Diagnostic poke helpers
+
+pub use vesl_mantle::tx_builder::{
+    kernel_sig_hash, kernel_tx_id, jam_seeds_manual, jam_spends_manual,
+    extract_hash_from_effect, bytes_to_atom,
+};
 
 use nockapp::noun::slab::{NockJammer, NounSlab};
 use nockapp::wire::{SystemWire, Wire};
@@ -19,9 +23,9 @@ use nockchain_types::tx_engine::v1::tx::{
 };
 use nockchain_types::tx_engine::v1::{RawTx, Version};
 use nockvm::ext::make_tas;
-use nockvm::noun::{IndirectAtom, D, T};
+use nockvm::noun::{D, T};
 use nockvm_macros::tas;
-use noun_serde::{NounDecode, NounEncode};
+use noun_serde::NounEncode;
 
 use crate::chain::SettlementData;
 use crate::signing;
@@ -51,7 +55,7 @@ pub struct SettlementTxParams {
     pub settlement: SettlementData,
     /// Transaction fee.
     pub fee: u64,
-    /// The signing secret key (8 × 32-bit Belt chunks).
+    /// The signing secret key (8 x 32-bit Belt chunks).
     pub signing_key: [Belt; 8],
 }
 
@@ -75,7 +79,6 @@ pub async fn build_settlement_tx(
         .map_err(|e| anyhow::anyhow!("output lock hash failed: {e}"))?;
 
     // 3. Build INPUT lock (must match the UTXO being spent)
-    //    Coinbase UTXOs have a P2PKH + timelock lock; regular UTXOs have simple P2PKH.
     let input_condition = if params.is_coinbase {
         SpendCondition::coinbase_pkh(pkh.clone(), params.coinbase_timelock_min)
     } else {
@@ -97,7 +100,7 @@ pub async fn build_settlement_tx(
     }
     let output_amount = params.input_amount.saturating_sub(params.fee);
     let seed = Seed {
-        output_source: None, // Not a coinbase output
+        output_source: None,
         lock_root: output_lock_root,
         note_data,
         gift: Nicks(output_amount as usize),
@@ -115,11 +118,11 @@ pub async fn build_settlement_tx(
     let signature = signing::sign(&params.signing_key, &msg_belts)
         .map_err(|e| anyhow::anyhow!("signing failed: {e}"))?;
 
-    // 8. Build witness — proves authorization to spend the INPUT UTXO
+    // 8. Build witness
     let lock_merkle_proof = LockMerkleProofFull {
         version: tas!(b"full"),
         spend_condition: input_condition,
-        axis: 1, // Root axis — single lock primitive
+        axis: 1,
         proof: MerkleProof {
             root: input_lock_root,
             path: vec![],
@@ -132,11 +135,10 @@ pub async fn build_settlement_tx(
         signature,
     };
 
-    // V-L03: single-signer only — multi-sig requires multiple PkhSignatureEntry values
     let witness = Witness::new(
         LockMerkleProof::Full(lock_merkle_proof),
         PkhSignature::new(vec![pkh_sig_entry]),
-        vec![], // no hax preimages
+        vec![],
     );
 
     // 9. Build spend
@@ -169,70 +171,6 @@ pub fn settlement_to_note_data(settlement: &SettlementData) -> NoteData {
 }
 
 // ---------------------------------------------------------------------------
-// Kernel-based hash computation
-// ---------------------------------------------------------------------------
-
-/// Compute sig-hash by poking the Hoon kernel's `%sig-hash` handler.
-///
-/// Sends `[%sig-hash seeds-jam fee]` where `seeds-jam` is the JAM'd noun
-/// of the Seeds z-set. Returns the tip5 hash used as the signing message.
-pub async fn kernel_sig_hash(
-    app: &mut NockApp,
-    seeds: &Seeds,
-    fee: &Nicks,
-) -> anyhow::Result<Hash> {
-    // JAM the seeds noun — use manual z-set construction to avoid
-    // upstream NockStack issue with NoteData::to_noun() in ZSet context.
-    let seeds_jammed = jam_seeds_manual(seeds)?;
-
-    // Build the poke: [%sig-hash seeds-jam fee]
-    let mut poke_slab: NounSlab = NounSlab::new();
-    let tag = make_tas(&mut poke_slab, "sig-hash").as_noun();
-    let seeds_atom = bytes_to_atom(&mut poke_slab, &seeds_jammed);
-    let fee_noun = D(fee.0 as u64);
-    let cmd = T(&mut poke_slab, &[tag, seeds_atom, fee_noun]);
-    poke_slab.set_root(cmd);
-
-    // Poke the kernel
-    let effects = app
-        .poke(SystemWire.to_wire(), poke_slab)
-        .await
-        .map_err(|e| anyhow::anyhow!("sig-hash poke failed: {e:?}"))?;
-
-    // Extract the hash from the first effect: [%sig-hash hash]
-    extract_hash_from_effect(&effects, "sig-hash")
-}
-
-/// Compute tx-id by poking the Hoon kernel's `%tx-id` handler.
-///
-/// Sends `[%tx-id spends-jam]` where `spends-jam` is the JAM'd noun
-/// of the Spends z-map (including witness with real signatures).
-pub async fn kernel_tx_id(
-    app: &mut NockApp,
-    spends: &Spends,
-) -> anyhow::Result<Hash> {
-    // JAM the spends noun — use manual z-map construction to avoid
-    // upstream NockStack issue with NoteData::to_noun() in ZSet context.
-    let spends_jammed = jam_spends_manual(spends)?;
-
-    // Build the poke: [%tx-id spends-jam]
-    let mut poke_slab: NounSlab = NounSlab::new();
-    let tag = make_tas(&mut poke_slab, "tx-id").as_noun();
-    let spends_atom = bytes_to_atom(&mut poke_slab, &spends_jammed);
-    let cmd = T(&mut poke_slab, &[tag, spends_atom]);
-    poke_slab.set_root(cmd);
-
-    // Poke the kernel
-    let effects = app
-        .poke(SystemWire.to_wire(), poke_slab)
-        .await
-        .map_err(|e| anyhow::anyhow!("tx-id poke failed: {e:?}"))?;
-
-    // Extract the hash from the first effect: [%tx-id hash]
-    extract_hash_from_effect(&effects, "tx-id")
-}
-
-// ---------------------------------------------------------------------------
 // Diagnostic pokes — isolate crash in %sig-hash pipeline
 // ---------------------------------------------------------------------------
 
@@ -242,7 +180,6 @@ pub fn jam_seeds_for_diag(seeds: &Seeds) -> anyhow::Result<bytes::Bytes> {
 }
 
 /// Fire `%diag-cue` to CUE the seeds JAM without applying the type sieve.
-/// Returns the kernel effects (contains `[%diag-cue is-cell raw-noun]`).
 pub async fn kernel_diag_cue(
     app: &mut NockApp,
     seeds: &Seeds,
@@ -259,8 +196,6 @@ pub async fn kernel_diag_cue(
 }
 
 /// Fire `%diag-hash` to test sig-hashable + hash-hashable inside mules.
-/// Returns effects: `[%diag-hash %ok hash]`, `[%diag-hash %fail-sig-hashable ...]`,
-/// or `[%diag-hash %fail-hash-hashable ...]`.
 pub async fn kernel_diag_hash(
     app: &mut NockApp,
     seeds: &Seeds,
@@ -279,7 +214,6 @@ pub async fn kernel_diag_hash(
 }
 
 /// Fire `%diag-sieve` to CUE and apply `;;(seeds:txv1 ...)` inside a mule.
-/// Returns effects: `[%diag-sieve %ok ~]` or `[%diag-sieve %fail trace-jam]`.
 pub async fn kernel_diag_sieve(
     app: &mut NockApp,
     seeds: &Seeds,
@@ -293,89 +227,6 @@ pub async fn kernel_diag_sieve(
     app.poke(SystemWire.to_wire(), poke_slab)
         .await
         .map_err(|e| anyhow::anyhow!("diag-sieve poke failed: {e:?}"))
-}
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-// ---------------------------------------------------------------------------
-// Manual noun builders — work around NockStack issue in ZSet/z-map
-// ---------------------------------------------------------------------------
-
-/// JAM Seeds into a noun on a plain NounSlab, bypassing ZSet::try_from_items
-/// which creates an internal NockStack that fails with NoteData::to_noun().
-///
-/// For a single-seed z-set, the noun structure is `[seed 0 0]`
-/// (treap node with null children).
-fn jam_seeds_manual(seeds: &Seeds) -> anyhow::Result<bytes::Bytes> {
-    anyhow::ensure!(!seeds.0.is_empty(), "seeds must not be empty");
-    anyhow::ensure!(
-        seeds.0.len() == 1,
-        "manual seeds JAM only supports single-seed (have {})",
-        seeds.0.len()
-    );
-
-    let mut slab: NounSlab<NockJammer> = NounSlab::new();
-    let seed_noun = seeds.0[0].to_noun(&mut slab);
-    // Single-element z-set: [element null null]
-    let zset_noun = T(&mut slab, &[seed_noun, D(0), D(0)]);
-    slab.set_root(zset_noun);
-    Ok(slab.jam())
-}
-
-/// JAM Spends into a noun on a plain NounSlab, bypassing the ZMap machinery.
-///
-/// For a single-spend z-map, the noun structure is `[[key value] 0 0]`
-/// (treap node with null children).
-fn jam_spends_manual(spends: &Spends) -> anyhow::Result<bytes::Bytes> {
-    anyhow::ensure!(!spends.0.is_empty(), "spends must not be empty");
-    anyhow::ensure!(
-        spends.0.len() == 1,
-        "manual spends JAM only supports single-spend (have {})",
-        spends.0.len()
-    );
-
-    let mut slab: NounSlab<NockJammer> = NounSlab::new();
-    let (ref name, ref spend) = spends.0[0];
-    let name_noun = name.to_noun(&mut slab);
-    let spend_noun = spend.to_noun(&mut slab);
-    let kv = T(&mut slab, &[name_noun, spend_noun]);
-    // Single-element z-map: [kv null null]
-    let zmap_noun = T(&mut slab, &[kv, D(0), D(0)]);
-    slab.set_root(zmap_noun);
-    Ok(slab.jam())
-}
-
-/// Extract a Hash from a kernel effect of shape `[%tag hash-noun]`.
-fn extract_hash_from_effect(effects: &[NounSlab], expected_tag: &str) -> anyhow::Result<Hash> {
-    let effect_slab = effects
-        .first()
-        .ok_or_else(|| anyhow::anyhow!("no effects returned from %{expected_tag} poke"))?;
-
-    // SAFETY: effect_slab comes from NockApp::poke, which sets the root.
-    // The slab is live and owned by this scope.
-    let root = unsafe { *effect_slab.root() };
-    let cell = root
-        .as_cell()
-        .map_err(|_| anyhow::anyhow!("{expected_tag} effect is not a cell"))?;
-
-    // The hash is the tail (head is the tag atom)
-    let hash_noun = cell.tail();
-    Hash::from_noun(&hash_noun).map_err(|e| anyhow::anyhow!("{expected_tag} hash decode: {e}"))
-}
-
-/// Convert a byte slice (JAM'd output) to a Nock atom.
-fn bytes_to_atom(slab: &mut NounSlab, bytes: &[u8]) -> nockvm::noun::Noun {
-    if bytes.is_empty() {
-        return D(0);
-    }
-    // SAFETY: bytes slice is caller-provided and valid for the duration
-    // of this call. new_raw_bytes_ref copies into the slab allocator.
-    unsafe {
-        let mut indirect = IndirectAtom::new_raw_bytes_ref(slab, bytes);
-        indirect.normalize_as_atom().as_noun()
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -401,80 +252,9 @@ mod tests {
         assert_eq!(nd.0.len(), 5);
     }
 
-    /// A1 diagnostic: Compare `jam_seeds_manual` output with `Seeds::to_noun` → JAM.
-    ///
-    /// If these differ, the sig-hash computed by our kernel differs from what
-    /// the chain computes, causing `v1-spend-1-lock-failed` (ISSUE-006).
-    #[test]
-    fn jam_seeds_manual_matches_seeds_to_noun() {
-        use noun_serde::NounEncode;
-
-        // Build a Seed with Vesl NoteData — same structure as settlement path
-        let settlement = SettlementData {
-            version: 1,
-            hull_id: 7,
-            merkle_root: [100, 200, 300, 400, 500],
-            note_id: 42,
-            manifest_hash: [10, 20, 30, 40, 50],
-            proof_jam: None,
-        };
-        let note_data = settlement_to_note_data(&settlement);
-
-        let seed = Seed {
-            output_source: None,
-            lock_root: Hash::from_limbs(&[1, 2, 3, 4, 5]),
-            note_data,
-            gift: Nicks(62_536),
-            parent_hash: Hash::from_limbs(&[10, 20, 30, 40, 50]),
-        };
-        let seeds = Seeds(vec![seed]);
-
-        // Path 1: manual JAM (what we use for sig-hash)
-        let manual_jam = jam_seeds_manual(&seeds).expect("manual JAM should succeed");
-
-        // Path 2: Seeds::to_noun → JAM (what the chain uses after protobuf roundtrip)
-        let standard_jam = {
-            let mut slab: NounSlab<NockJammer> = NounSlab::new();
-            let noun = seeds.to_noun(&mut slab);
-            slab.set_root(noun);
-            slab.jam()
-        };
-
-        // Compare
-        let manual_bytes = manual_jam.to_vec();
-        let standard_bytes = standard_jam.to_vec();
-
-        if manual_bytes != standard_bytes {
-            eprintln!("ISSUE-006 ROOT CAUSE FOUND: JAM divergence!");
-            eprintln!(
-                "  manual JAM:   {} bytes, first 32: {:?}",
-                manual_bytes.len(),
-                &manual_bytes[..manual_bytes.len().min(32)]
-            );
-            eprintln!(
-                "  standard JAM: {} bytes, first 32: {:?}",
-                standard_bytes.len(),
-                &standard_bytes[..standard_bytes.len().min(32)]
-            );
-        }
-
-        assert_eq!(
-            manual_bytes, standard_bytes,
-            "jam_seeds_manual must produce identical bytes to Seeds::to_noun → JAM. \
-             Divergence causes sig-hash mismatch → v1-spend-1-lock-failed (ISSUE-006)."
-        );
-    }
-
     /// Verify `jam_seeds_manual` succeeds with 6 NoteData entries (proof present).
-    ///
-    /// FINDING: `Seeds::to_noun` (via `ZSet::try_from_items`) panics with
-    /// `AtomTooLarge` when proof data is present — the ZSet hashing walks
-    /// the entire seed noun tree and chokes on large atoms. The manual JAM
-    /// path bypasses ZSet and works. This test confirms the manual path
-    /// produces valid JAM for the 6-entry case.
     #[test]
     fn jam_seeds_manual_succeeds_with_proof() {
-        // Mock proof blob (~500 bytes, same pattern as diag-reproduce)
         let mock_proof = bytes::Bytes::from(
             [0xDE, 0xAD, 0xBE, 0xEF, 0x42]
                 .iter()
@@ -484,7 +264,7 @@ mod tests {
                 .collect::<Vec<u8>>(),
         );
         let settlement = SettlementData {
-            version: 2, // v2 includes proof
+            version: 2,
             hull_id: 7,
             merkle_root: [100, 200, 300, 400, 500],
             note_id: 42,
@@ -507,36 +287,26 @@ mod tests {
         };
         let seeds = Seeds(vec![seed]);
 
-        // Manual JAM must succeed — this is the path used for sig-hash
         let manual_jam = jam_seeds_manual(&seeds).expect("manual JAM should succeed with proof");
         assert!(
             manual_jam.len() > 100,
             "JAM'd seeds with proof should be non-trivial (got {} bytes)",
             manual_jam.len()
         );
-
-        // Note: Seeds::to_noun (standard path) panics with AtomTooLarge here.
-        // The ZSet hashing walks the full seed noun tree and can't handle
-        // large atoms in the proof blob value. jam_seeds_manual bypasses
-        // ZSet entirely, which is why it was written as a manual path.
     }
 
-    /// Belt-list encoding round-trips: encode proof → note-data → decode matches original.
+    /// Belt-list encoding round-trips: encode proof -> note-data -> decode matches original.
     #[test]
     fn proof_belt_encoding_round_trips() {
         let patterns: Vec<Vec<u8>> = vec![
-            // Short (< 7 bytes)
             vec![0x01, 0x02, 0x03],
-            // Exactly 7 bytes (one full chunk)
             vec![0xDE, 0xAD, 0xBE, 0xEF, 0x42, 0x13, 0x37],
-            // 500 bytes (simulates real proof blob)
             [0xDE, 0xAD, 0xBE, 0xEF, 0x42]
                 .iter()
                 .copied()
                 .cycle()
                 .take(500)
                 .collect(),
-            // Empty
             vec![],
         ];
         for original in &patterns {
@@ -573,8 +343,6 @@ mod tests {
     /// A1b diagnostic: Same comparison for `jam_spends_manual` vs `Spends::to_noun`.
     #[test]
     fn jam_spends_manual_matches_spends_to_noun() {
-        use noun_serde::NounEncode;
-
         let settlement = SettlementData {
             version: 1,
             hull_id: 7,
@@ -595,7 +363,6 @@ mod tests {
         let seeds = Seeds(vec![seed]);
         let fee = Nicks(3000);
 
-        // Build a minimal Witness for the Spend
         let pkh = Hash::from_limbs(&[99, 88, 77, 66, 55]);
         let input_condition = SpendCondition::coinbase_pkh(pkh.clone(), 1);
         let input_lock_root = Lock::SpendCondition(input_condition.clone())
@@ -612,7 +379,6 @@ mod tests {
             },
         };
 
-        // Use a dummy signature (won't affect JAM comparison)
         let dummy_sig = nockchain_types::tx_engine::common::SchnorrSignature {
             chal: [nockchain_math::belt::Belt(1); 8],
             sig: [nockchain_math::belt::Belt(2); 8],
@@ -646,7 +412,7 @@ mod tests {
         // Path 1: manual JAM
         let manual_jam = jam_spends_manual(&spends).expect("manual JAM should succeed");
 
-        // Path 2: Spends::to_noun → JAM
+        // Path 2: Spends::to_noun -> JAM
         let standard_jam = {
             let mut slab: NounSlab<NockJammer> = NounSlab::new();
             let noun = spends.to_noun(&mut slab);
@@ -654,18 +420,10 @@ mod tests {
             slab.jam()
         };
 
-        let manual_bytes = manual_jam.to_vec();
-        let standard_bytes = standard_jam.to_vec();
-
-        if manual_bytes != standard_bytes {
-            eprintln!("ISSUE-006 ROOT CAUSE FOUND: Spends JAM divergence!");
-            eprintln!("  manual:   {} bytes", manual_bytes.len());
-            eprintln!("  standard: {} bytes", standard_bytes.len());
-        }
-
         assert_eq!(
-            manual_bytes, standard_bytes,
-            "jam_spends_manual must produce identical bytes to Spends::to_noun → JAM."
+            manual_jam.to_vec(),
+            standard_jam.to_vec(),
+            "jam_spends_manual must produce identical bytes to Spends::to_noun -> JAM."
         );
     }
 }

@@ -11,12 +11,24 @@ nockchain-tip5-rs = { path = "../nockchain-tip5-rs", features = ["serde"] }
 nock-noun-rs = { path = "../nock-noun-rs" }
 nockchain-client-rs = { path = "../nockchain-client-rs" }
 
-# Nockchain monorepo crates (for Anchor/Kraken kernel boot)
+# Nockchain monorepo crates
 nockapp = { path = "../../../nockchain/crates/nockapp", default-features = false }
 nockvm = { path = "../../../nockchain/crates/nockvm/rust/nockvm" }
+nockchain-math = { path = "../../../nockchain/crates/nockchain-math" }
+nockchain-types = { path = "../../../nockchain/crates/nockchain-types" }
+noun-serde = { path = "../../../nockchain/crates/noun-serde" }
+nockvm_macros = { path = "../../../nockchain/crates/nockvm/rust/nockvm_macros" }
+ibig = { path = "../../../nockchain/crates/nockvm/rust/ibig" }
 
 # Standard deps
 anyhow = "1.0"
+bytes = "1"
 tokio = { version = "1", features = ["rt"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+zeroize = "1"
+clap = { version = "4", features = ["derive"], optional = true }
+
+[features]
+default = []
+clap = ["dep:clap"]

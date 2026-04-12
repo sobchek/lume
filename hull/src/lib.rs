@@ -1,20 +1,13 @@
-//! Vesl Hull — library target for integration tests.
+//! Hull — Generic Vesl base template. Fork this.
 //!
-//! Re-exports internal modules so that `tests/e2e_fakenet.rs` and other
-//! integration tests can reference `hull::chain`, `hull::wallet`, etc.
+//! Minimal NockApp hull for verified field commitment on Nockchain.
+//! No retriever, no LLM, no RAG. Just commit key-value fields to a
+//! Merkle tree, register the root with the kernel, verify, and settle.
 //!
-//! The binary entry point remains in `main.rs`.
+//! Community developers: replace `FieldVerifier` with domain logic,
+//! swap out the `/commit` endpoint for your data model, and ship.
 
 pub mod api;
-pub mod chain;
 pub mod config;
-pub mod ingest;
-pub mod llm;
-pub mod merkle;
-pub mod noun_builder;
-pub mod retrieve;
 pub mod signing;
-pub mod tx_builder;
-pub mod types;
-pub mod wallet;
-pub mod wallet_kernel;
+pub mod verify;

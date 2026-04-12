@@ -59,7 +59,7 @@ fn rust_payload_structure_integrity() {
             b"Board approved Series B at $45M pre-money",
             b"SOC2 Type II audit scheduled for Q4",
         ];
-        let tree = hull::merkle::MerkleTree::build(&chunks_data);
+        let tree = hull_rag::merkle::MerkleTree::build(&chunks_data);
         let root = tree.root();
         nockchain_tip5_rs::tip5_to_atom_le_bytes(&root)
     };

@@ -58,7 +58,7 @@ check-cargo:
 	@command -v cargo >/dev/null 2>&1 || { \
 		echo "Error: cargo not found."; \
 		echo "Install Rust: https://rustup.rs"; \
-		echo "Required nightly: $$(cat hull/rust-toolchain 2>/dev/null || echo 'see hull/rust-toolchain')"; \
+		echo "Required nightly: $$(cat hull-rag/rust-toolchain 2>/dev/null || echo 'see hull-rag/rust-toolchain')"; \
 		exit 1; \
 	}
 
@@ -104,16 +104,16 @@ setup: check-cargo check-nock-home
 	@NOCK_HOME="$(NOCK_HOME)" ./scripts/setup-hoon-tree.sh
 
 build: check-cargo
-	cd hull && cargo build --release
+	cd hull-rag && cargo build --release
 
 build-dumbnet: check-cargo
-	cd hull && cargo build --release --features dumbnet
+	cd hull-rag && cargo build --release --features dumbnet
 
 test: check-cargo
-	cd hull && cargo test
+	cd hull-rag && cargo test
 
 test-unit: check-cargo
-	cd hull && cargo test --lib
+	cd hull-rag && cargo test --lib
 
 demo-fakenet: check-cargo check-nockchain
 	@DEMO_FLAGS="--fakenet"; \
@@ -134,7 +134,7 @@ demo-dumbnet: check-cargo
 	./scripts/demo.sh $$DEMO_FLAGS
 
 wallet-init: check-cargo
-	cd hull && cargo run --features dumbnet -- wallet init --keygen
+	cd hull-rag && cargo run --features dumbnet -- wallet init --keygen
 
 kernel: check-cargo check-nock-home check-hoonc
 	hoonc --new protocol/lib/vesl-kernel.hoon hoon/
@@ -144,8 +144,8 @@ kernel: check-cargo check-nock-home check-hoonc
 
 clean:
 	@if [ -x scripts/fakenet-harness.sh ]; then ./scripts/fakenet-harness.sh stop 2>/dev/null || true; fi
-	cd hull && cargo clean 2>/dev/null || true
-	rm -rf .fakenet/ hull/.data.vesl/ out.jam
+	cd hull-rag && cargo clean 2>/dev/null || true
+	rm -rf .fakenet/ hull-rag/.data.vesl/ out.jam
 	@echo "Clean."
 
 status:

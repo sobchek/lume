@@ -1,19 +1,20 @@
 //! Anchor — Settlement (heavy tier)
 //!
-//! Full settlement lifecycle. Requires kernel boot + chain access.
-//! Wraps Vigil verification with NockApp kernel state transitions
-//! and on-chain submission via nockchain-client-rs.
+//! Two layers:
+//! 1. `Anchor<V>` struct — verify via IntentVerifier, manage root registration
+//! 2. Free functions — composable transaction building helpers
 //!
-//! Generic over `IntentVerifier` — defaults to `RagVerifier` for
-//! backwards compatibility. Non-RAG domains implement the trait
-//! and pass their verifier to `Anchor::without_kernel(verifier)`.
+//! The hull orchestrates kernel boot and poke dispatch. Anchor provides
+//! the settlement toolkit: seed construction, signing, tx assembly,
+//! chain submission. Kernel interaction (NockApp pokes for sig-hash
+//! and tx-id) lives in `tx_builder`.
 
 use std::collections::HashSet;
 
 use anyhow::Result;
 
 use nock_noun_rs::NounSlab;
-use nockchain_client_rs::{ChainClient, WalletClient};
+use nockchain_client_rs::ChainClient;
 use nockchain_tip5_rs::{verify_proof, Tip5Hash};
 
 use crate::vigil::Vigil;
@@ -76,14 +77,6 @@ pub struct Anchor<V: IntentVerifier = RagVerifier> {
 }
 
 impl Anchor<RagVerifier> {
-    /// Boot the Vesl kernel for settlement.
-    ///
-    /// Loads beak.jam (or kraken.jam) and initializes the NockApp.
-    /// Currently stubbed — kernel boot wiring depends on runtime environment.
-    pub async fn boot() -> Result<Self> {
-        todo!("kernel boot: load anchor.jam, init NockApp runtime")
-    }
-
     /// Create an Anchor with the default RagVerifier (no kernel).
     /// Useful for testing the RAG verification path without kernel boot.
     pub fn without_kernel() -> Self {
@@ -153,19 +146,6 @@ impl<V: IntentVerifier> Anchor<V> {
         self.settle(&payload).await
     }
 
-    /// Settle and submit to chain.
-    ///
-    /// Requires a connected ChainClient and WalletClient.
-    /// Currently stubbed — chain submission wiring is complex.
-    pub async fn settle_on_chain(
-        &mut self,
-        _payload: &GraftPayload,
-        _chain: &mut ChainClient,
-        _wallet: &mut WalletClient,
-    ) -> Result<()> {
-        todo!("settle_on_chain: verify → kernel poke → build tx → sign → submit")
-    }
-
     /// Access the inner Vigil verifier.
     pub fn vigil(&self) -> &Vigil {
         &self.vigil
@@ -176,6 +156,118 @@ impl<V: IntentVerifier> Anchor<V> {
         &self.verifier
     }
 }
+
+// ---------------------------------------------------------------------------
+// Composable settlement helpers — free functions
+// ---------------------------------------------------------------------------
+
+/// Build the output Seed for a settlement transaction.
+///
+/// Constructs a single Seed with the given NoteData, lock, gift amount,
+/// and parent hash. The caller encodes domain-specific data into NoteData
+/// before calling this.
+pub fn build_seeds(
+    lock_root: nockchain_types::tx_engine::common::Hash,
+    note_data: nockchain_types::tx_engine::v1::note::NoteData,
+    parent_hash: nockchain_types::tx_engine::common::Hash,
+    amount: u64,
+    fee: u64,
+) -> Result<nockchain_types::tx_engine::v1::tx::Seeds> {
+    anyhow::ensure!(
+        fee <= amount / 2,
+        "fee ({fee}) exceeds 50% of input amount ({amount})"
+    );
+    let output_amount = amount.saturating_sub(fee);
+    use nockchain_types::tx_engine::v1::tx::Seed;
+    let seed = Seed {
+        output_source: None,
+        lock_root,
+        note_data,
+        gift: nockchain_types::tx_engine::common::Nicks(output_amount as usize),
+        parent_hash,
+    };
+    Ok(nockchain_types::tx_engine::v1::tx::Seeds(vec![seed]))
+}
+
+/// Sign a sig-hash with a secret key.
+///
+/// Takes the tip5 hash from `kernel_sig_hash` and produces a Schnorr signature.
+pub fn sign_tx(
+    signing_key: &[nockchain_math::belt::Belt; 8],
+    sig_hash: &nockchain_types::tx_engine::common::Hash,
+) -> Result<nockchain_types::tx_engine::common::SchnorrSignature> {
+    let msg_belts = sig_hash.to_array().map(nockchain_math::belt::Belt);
+    crate::signing::sign(signing_key, &msg_belts)
+        .map_err(|e| anyhow::anyhow!("signing failed: {e}"))
+}
+
+/// Build a Witness proving authorization to spend an input UTXO.
+pub fn build_witness(
+    signing_key: &[nockchain_math::belt::Belt; 8],
+    sig_hash: &nockchain_types::tx_engine::common::Hash,
+    is_coinbase: bool,
+    coinbase_timelock_min: u64,
+) -> Result<nockchain_types::tx_engine::v1::tx::Witness> {
+    use nockchain_types::tx_engine::v1::tx::*;
+
+    let pubkey = crate::signing::derive_pubkey(signing_key);
+    let pkh = crate::signing::pubkey_hash(&pubkey);
+
+    let input_condition = if is_coinbase {
+        SpendCondition::coinbase_pkh(pkh.clone(), coinbase_timelock_min)
+    } else {
+        SpendCondition::simple_pkh(pkh.clone())
+    };
+    let input_lock_root = Lock::SpendCondition(input_condition.clone())
+        .hash()
+        .map_err(|e| anyhow::anyhow!("input lock hash failed: {e}"))?;
+
+    let signature = sign_tx(signing_key, sig_hash)?;
+
+    let lock_merkle_proof = LockMerkleProofFull {
+        version: nockvm_macros::tas!(b"full"),
+        spend_condition: input_condition,
+        axis: 1,
+        proof: MerkleProof {
+            root: input_lock_root,
+            path: vec![],
+        },
+    };
+
+    let pkh_sig_entry = PkhSignatureEntry {
+        hash: pkh,
+        pubkey,
+        signature,
+    };
+
+    Ok(Witness::new(
+        LockMerkleProof::Full(lock_merkle_proof),
+        PkhSignature::new(vec![pkh_sig_entry]),
+        vec![],
+    ))
+}
+
+/// Submit a transaction to the chain and optionally wait for acceptance.
+///
+/// Returns `true` if accepted, `false` if timed out (when `wait` is true).
+/// Returns `true` immediately after submission (when `wait` is false).
+pub async fn submit_tx(
+    chain: &mut ChainClient,
+    raw_tx: nockchain_types::tx_engine::v1::RawTx,
+    tx_id_b58: &str,
+    wait: bool,
+) -> Result<bool> {
+    if wait {
+        chain.submit_and_wait(raw_tx, tx_id_b58).await
+    } else {
+        chain.submit_transaction(raw_tx).await?;
+        Ok(true)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// RAG-specific poke builders (kept for backward compat)
+// ---------------------------------------------------------------------------
 
 /// Build a [%settle jammed-payload] poke in NounSlab.
 ///
@@ -477,5 +569,69 @@ mod tests {
         let result = anchor.settle_manifest(&note, &manifest, &root).await;
         assert!(result.is_ok());
         assert!(matches!(result.unwrap().state, NoteState::Settled));
+    }
+
+    // --- Tests for composable helpers ---
+
+    #[test]
+    fn build_seeds_valid() {
+        use nockchain_types::tx_engine::common::Hash;
+        use nockchain_types::tx_engine::v1::note::{NoteData, NoteDataEntry};
+
+        let note_data = NoteData::new(vec![
+            NoteDataEntry::new("test".to_string(), bytes::Bytes::from(vec![1u8])),
+        ]);
+        let lock_root = Hash::from_limbs(&[1, 2, 3, 4, 5]);
+        let parent = Hash::from_limbs(&[10, 20, 30, 40, 50]);
+
+        let seeds = build_seeds(lock_root, note_data, parent, 100_000, 256).unwrap();
+        assert_eq!(seeds.0.len(), 1);
+        assert_eq!(seeds.0[0].gift.0, 99_744); // 100000 - 256
+    }
+
+    #[test]
+    fn build_seeds_excessive_fee_rejected() {
+        use nockchain_types::tx_engine::common::Hash;
+        use nockchain_types::tx_engine::v1::note::{NoteData, NoteDataEntry};
+
+        let note_data = NoteData::new(vec![
+            NoteDataEntry::new("test".to_string(), bytes::Bytes::from(vec![1u8])),
+        ]);
+        let lock_root = Hash::from_limbs(&[1, 2, 3, 4, 5]);
+        let parent = Hash::from_limbs(&[10, 20, 30, 40, 50]);
+
+        let result = build_seeds(lock_root, note_data, parent, 100, 60);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("fee"));
+    }
+
+    #[test]
+    fn sign_tx_produces_signature() {
+        use nockchain_math::belt::Belt;
+        use nockchain_types::tx_engine::common::Hash;
+
+        let mut sk = [Belt(0); 8];
+        sk[0] = Belt(12345);
+        sk[1] = Belt(67890);
+
+        let hash = Hash::from_limbs(&[1, 2, 3, 4, 5]);
+        let sig = sign_tx(&sk, &hash).unwrap();
+        // Signature components must be non-zero
+        assert!(sig.chal.iter().any(|b| b.0 != 0));
+        assert!(sig.sig.iter().any(|b| b.0 != 0));
+    }
+
+    #[test]
+    fn build_witness_produces_valid_witness() {
+        use nockchain_math::belt::Belt;
+        use nockchain_types::tx_engine::common::Hash;
+
+        let mut sk = [Belt(0); 8];
+        sk[0] = Belt(42);
+
+        let hash = Hash::from_limbs(&[9, 8, 7, 6, 5]);
+        let witness = build_witness(&sk, &hash, false, 1).unwrap();
+        // Witness was constructed without error
+        let _ = witness;
     }
 }

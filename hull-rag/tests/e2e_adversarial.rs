@@ -19,9 +19,9 @@ use nockapp::wire::{SystemWire, Wire};
 use nockapp::NockApp;
 use nockvm::noun::{IndirectAtom, T};
 use tempfile::TempDir;
-use hull::merkle::MerkleTree;
-use hull::noun_builder;
-use hull::types::*;
+use hull_rag::merkle::MerkleTree;
+use hull_rag::noun_builder;
+use hull_rag::types::*;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -525,9 +525,9 @@ mod http_api {
     use std::sync::Arc;
     use tokio::sync::Mutex;
     use tower::ServiceExt;
-    use hull::api;
-    use hull::llm::StubProvider;
-    use hull::retrieve::KeywordRetriever;
+    use hull_rag::api;
+    use hull_rag::llm::StubProvider;
+    use hull_rag::retrieve::KeywordRetriever;
 
     async fn test_router() -> (axum::Router, api::SharedState, TempDir) {
         let tmp = TempDir::new().expect("create temp dir");
@@ -551,7 +551,7 @@ mod http_api {
                 top_k: 2,
                 retriever: Box::new(KeywordRetriever),
                 note_counter: 0,
-                settlement: hull::config::SettlementConfig::local(),
+                settlement: hull_rag::config::SettlementConfig::local(),
                 stack_size: nockapp::kernel::boot::NockStackSize::Normal,
                 output_dir: tmp.path().to_path_buf(),
             }),
