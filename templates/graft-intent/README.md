@@ -4,7 +4,7 @@ A NockApp with a custom (non-RAG) verification gate grafted in.
 
 ## Why This Exists
 
-`graft-sigil` and `graft-anchor` use RAG verification — manifests, Merkle proofs, prompt reconstruction. That's one gate. The Graft doesn't care what your gate does. This template proves it.
+`graft-mint` and `graft-settle` use RAG verification — manifests, Merkle proofs, prompt reconstruction. That's one gate. The Graft doesn't care what your gate does. This template proves it.
 
 The verification gate here is one line:
 
@@ -63,7 +63,7 @@ hoon/
   lib/vesl-graft.hoon   — composable state and poke dispatcher
   lib/vesl-merkle.hoon  — Merkle primitives (tip5)
   common/wrapper.hoon   — NockApp protocol
-src/main.rs             — Rust driver with Sigil commitment demo
+src/main.rs             — Rust driver with Mint commitment demo
 ```
 
 ## Writing Your Own Gate
@@ -80,7 +80,7 @@ The gate type is `verify-gate`:
 ::  hash comparison (this template)
 =((hash-leaf ;;(@ data)) expected-root)
 
-::  RAG manifest verification (graft-sigil, graft-anchor)
+::  RAG manifest verification (graft-mint, graft-settle)
 (verify-manifest ;;(manifest data) expected-root)
 
 ::  signature check (your domain)

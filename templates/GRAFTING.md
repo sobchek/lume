@@ -1,4 +1,4 @@
-# How to Graft Sigil onto Your NockApp
+# How to Graft Mint onto Your NockApp
 
 You have a NockApp. It does something useful. Now you want tamper-evident data commitment — Merkle roots, inclusion proofs, the works. You don't want to write hash functions or proof verification logic.
 
@@ -8,11 +8,11 @@ The Graft pattern attaches Vesl's verification infrastructure to your kernel as 
 
 | Tier | Capability |
 |------|-----------|
-| **Sigil** (Rust) | Build Merkle trees, generate proofs, get roots |
-| **Vigil** (Rust) | Verify proofs against roots locally |
+| **Mint** (Rust) | Build Merkle trees, generate proofs, get roots |
+| **Guard** (Rust) | Verify proofs against roots locally |
 | **Graft** (Hoon) | Register roots, verify manifests, settle notes — in-kernel |
 
-Sigil and Vigil are pure math. No kernel boot required. The Graft adds state tracking and guard logic to your Hoon kernel.
+Mint and Guard are pure math. No kernel boot required. The Graft adds state tracking and guard logic to your Hoon kernel.
 
 ## Step 1: Add the Hoon Files
 
@@ -113,18 +113,18 @@ vesl-core = { path = "../../crates/vesl-core" }
 nock-noun-rs = { path = "../../crates/nock-noun-rs" }
 ```
 
-## Step 8: Commit Data with Sigil
+## Step 8: Commit Data with Mint
 
 ```rust
-use vesl_core::Sigil;
+use vesl_core::Mint;
 
-let mut sigil = Sigil::new();
+let mut mint = Mint::new();
 let leaves: Vec<&[u8]> = documents.iter()
     .map(|d| d.as_bytes())
     .collect();
-sigil.commit(&leaves);
+mint.commit(&leaves);
 
-let root = sigil.root().expect("committed");
+let root = mint.root().expect("committed");
 ```
 
 ## Step 9: Register the Root
@@ -146,22 +146,22 @@ app.poke(SystemWire.to_wire(), slab).await?;
 
 Note: `make_tag_in` handles tags longer than 8 bytes (like `vesl-register`) that don't fit in a u64 direct atom. Use it instead of `D(tas!(b"..."))` for long tags.
 
-## Step 10: Verify Proofs with Vigil
+## Step 10: Verify Proofs with Guard
 
 ```rust
-use vesl_core::Vigil;
+use vesl_core::Guard;
 
-let mut vigil = Vigil::new();
-vigil.register_root(root);
+let mut guard = Guard::new();
+guard.register_root(root);
 
 for (i, doc) in documents.iter().enumerate() {
-    let proof = sigil.proof(i);
-    let valid = vigil.check(doc.as_bytes(), &proof, &root);
+    let proof = mint.proof(i);
+    let valid = guard.check(doc.as_bytes(), &proof, &root);
     // valid is true if the document is bound to the Merkle root
 }
 ```
 
-Vigil verification is local — no kernel, no network, no async. Pure math.
+Guard verification is local — no kernel, no network, no async. Pure math.
 
 ## Compile
 
@@ -171,23 +171,23 @@ The kernel needs `$NOCK_HOME/hoon/` for tip5 primitives (zeke.hoon):
 hoonc hoon/app/app.hoon $NOCK_HOME/hoon/
 ```
 
-Or use the pre-compiled `out.jam` from the graft-sigil template (1.5MB).
+Or use the pre-compiled `out.jam` from the graft-mint template (1.5MB).
 
 ## The Tiers
 
-If you only need commitment: use Sigil (Rust-only, no kernel).
+If you only need commitment: use Mint (Rust-only, no kernel).
 
-If you need commitment + verification: add Vigil (still Rust-only).
+If you need commitment + verification: add Guard (still Rust-only).
 
 If you need in-kernel state tracking: add the Graft (Hoon library).
 
-If you need settlement with replay protection: delegate `%vesl-settle` (Anchor pattern).
+If you need settlement with replay protection: delegate `%vesl-settle` (Settle pattern).
 
 | Need | Use | Kernel? |
 |------|-----|---------|
-| Hash data, get roots | Sigil | No |
-| Verify proofs | Sigil + Vigil | No |
-| Register roots in kernel | Sigil + Graft | Yes |
+| Hash data, get roots | Mint | No |
+| Verify proofs | Mint + Guard | No |
+| Register roots in kernel | Mint + Graft | Yes |
 | Verify in kernel | Graft (%vesl-verify) | Yes |
 | Settle notes | Graft (%vesl-settle) | Yes |
 | STARK proofs | Full vesl-kernel + prover | Yes (18MB) |
@@ -203,7 +203,7 @@ The Graft is domain-agnostic. The examples above use a RAG verification gate (ca
 `data` is opaque `*`. Cast it to your domain type and return a loobean. Some examples:
 
 ```hoon
-::  RAG manifest verification (graft-sigil, graft-anchor)
+::  RAG manifest verification (graft-mint, graft-settle)
 |=  [data=* expected-root=@]
 =/  mani  ;;(manifest data)
 (verify-manifest mani expected-root)
@@ -260,8 +260,8 @@ The Graft is domain-agnostic. The examples above use a RAG verification gate (ca
 
 ## Reference Templates
 
-- [`graft-sigil`](./graft-sigil/) — Sigil + Vigil with RAG verification gate
-- [`graft-anchor`](./graft-anchor/) — Full settlement lifecycle with RAG gate
+- [`graft-mint`](./graft-mint/) — Mint + Guard with RAG verification gate
+- [`graft-settle`](./graft-settle/) — Full settlement lifecycle with RAG gate
 - [`graft-intent`](./graft-intent/) — Custom hash gate, no RAG types
 
 ~

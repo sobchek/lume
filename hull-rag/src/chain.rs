@@ -49,6 +49,15 @@ use nockchain_types::tx_engine::common::Hash as ChainHash;
 use nockchain_types::tx_engine::v1::tx::SpendCondition;
 
 // ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/// Dereference a NounSlab's root noun (C-001).
+fn slab_root(slab: &NounSlab) -> Noun {
+    unsafe { *slab.root() }
+}
+
+// ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
 
@@ -184,23 +193,27 @@ impl SettlementData {
 // Manifest hashing
 // ---------------------------------------------------------------------------
 
-/// Compute tip5 hash of a manifest for on-chain integrity verification.
+/// Compute tip5 hash of a manifest for on-chain integrity verification (H-007).
 ///
-/// Concatenates query + "\n" + each chunk's dat + "\n" + prompt + "\n" + output + "\n" + page,
-/// then hashes the result as a single atom via `hash_leaf` (tip5 varlen sponge).
+/// Uses length-prefixed encoding to avoid delimiter collisions:
+/// `[4-byte-le-length][field-bytes]` for each field. This ensures chunks
+/// containing newlines or other special characters hash identically in
+/// Rust and Hoon.
 pub fn manifest_hash(manifest: &Manifest) -> Tip5Hash {
-    let mut content = manifest.query.clone();
-    content.push('\n');
+    let mut buf = Vec::new();
+    // Helper: write [4-byte LE length][bytes]
+    let mut write_field = |data: &[u8]| {
+        buf.extend_from_slice(&(data.len() as u32).to_le_bytes());
+        buf.extend_from_slice(data);
+    };
+    write_field(manifest.query.as_bytes());
     for retrieval in &manifest.results {
-        content.push_str(&retrieval.chunk.dat);
-        content.push('\n');
+        write_field(retrieval.chunk.dat.as_bytes());
     }
-    content.push_str(&manifest.prompt);
-    content.push('\n');
-    content.push_str(&manifest.output);
-    content.push('\n');
-    content.push_str(&manifest.page.to_string());
-    hash_leaf(content.as_bytes())
+    write_field(manifest.prompt.as_bytes());
+    write_field(manifest.output.as_bytes());
+    write_field(&manifest.page.to_le_bytes());
+    hash_leaf(&buf)
 }
 
 // ---------------------------------------------------------------------------
@@ -262,9 +275,7 @@ fn find_u64_entry(data: &NoteData, key: &str) -> Result<u64> {
     let mut slab: NounSlab<NockJammer> = NounSlab::new();
     slab.cue_into(entry.blob.clone())
         .context("failed to cue NoteDataEntry blob")?;
-    // SAFETY: root was set by cue_into on the line above. The NounSlab
-    // owns the allocation; dereferencing is valid while the slab is live.
-    let noun = unsafe { *slab.root() };
+    let noun = slab_root(&slab);
     let atom = noun
         .as_atom()
         .map_err(|_| anyhow::anyhow!("expected atom for key '{key}', got cell"))?;
@@ -281,9 +292,7 @@ fn find_hash_entry(data: &NoteData, key: &str) -> Result<Tip5Hash> {
     let mut slab: NounSlab<NockJammer> = NounSlab::new();
     slab.cue_into(entry.blob.clone())
         .context("failed to cue NoteDataEntry blob")?;
-    // SAFETY: root was set by cue_into on the line above. The NounSlab
-    // owns the allocation; dereferencing is valid while the slab is live.
-    let mut noun = unsafe { *slab.root() };
+    let mut noun = slab_root(&slab);
     let mut limbs = [0u64; 5];
     for (i, limb) in limbs.iter_mut().enumerate() {
         let cell = noun
@@ -342,7 +351,7 @@ fn find_opaque_bytes_entry(data: &NoteData, key: &str) -> Result<Vec<u8>> {
     let mut slab: NounSlab<NockJammer> = NounSlab::new();
     slab.cue_into(entry.blob.clone())
         .context("failed to cue NoteDataEntry blob")?;
-    let noun = unsafe { *slab.root() };
+    let noun = slab_root(&slab);
 
     if let Ok(atom) = noun.as_atom() {
         // Legacy format or empty: single atom
@@ -384,46 +393,10 @@ fn find_entry<'a>(data: &'a NoteData, key: &str) -> Result<&'a NoteDataEntry> {
 }
 
 // ---------------------------------------------------------------------------
-// ChainConfig — connection and retry configuration
+// ChainConfig — re-exported from nockchain-client-rs via vesl-core
 // ---------------------------------------------------------------------------
 
-/// Configuration for chain interaction.
-#[derive(Debug, Clone)]
-pub struct ChainConfig {
-    /// gRPC endpoint URL (e.g., `http://localhost:9090`).
-    pub endpoint: String,
-    /// How often to poll `transaction_accepted` in `wait_for_acceptance`.
-    pub poll_interval: Duration,
-    /// Maximum time to wait for transaction acceptance before giving up.
-    pub accept_timeout: Duration,
-}
-
-impl ChainConfig {
-    /// Create a config pointing at a local Nockchain node with sensible defaults.
-    pub fn local(endpoint: &str) -> Self {
-        Self {
-            endpoint: endpoint.to_string(),
-            poll_interval: Duration::from_secs(5),
-            accept_timeout: Duration::from_secs(120),
-        }
-    }
-}
-
-impl Default for ChainConfig {
-    fn default() -> Self {
-        Self::local("http://localhost:9090")
-    }
-}
-
-impl From<vesl_core::ChainConfig> for ChainConfig {
-    fn from(cc: vesl_core::ChainConfig) -> Self {
-        Self {
-            endpoint: cc.endpoint,
-            poll_interval: cc.poll_interval,
-            accept_timeout: cc.accept_timeout,
-        }
-    }
-}
+pub use vesl_core::ChainConfig;
 
 // ---------------------------------------------------------------------------
 // ChainClient — gRPC client for Nockchain interaction
@@ -790,9 +763,19 @@ impl SpendableUtxo {
 ///
 /// Parses each `BalanceEntry` to extract the note name, amount, and
 /// any embedded Vesl settlement data. Skips entries with missing data.
+/// Maximum sane UTXO amount — 10 billion nicks. Anything above is likely
+/// a parsing artifact or compromised node response (H-008).
+const MAX_SANE_UTXO_AMOUNT: u64 = 10_000_000_000;
+
 pub fn extract_spendable_utxos(
     balance: &nockapp_grpc::pb::common::v2::Balance,
 ) -> Vec<SpendableUtxo> {
+    // H-008: log raw response for audit trail
+    eprintln!(
+        "[chain] balance response: {} note(s)",
+        balance.notes.len(),
+    );
+
     let mut utxos = Vec::new();
     for entry in &balance.notes {
         let pb_name = match &entry.name {
@@ -844,6 +827,19 @@ pub fn extract_spendable_utxos(
             }
             None => continue,
         };
+
+        // H-008: reject UTXOs with zero or implausible amounts
+        if amount == 0 {
+            eprintln!("[chain] skipping UTXO with zero amount");
+            continue;
+        }
+        if amount > MAX_SANE_UTXO_AMOUNT {
+            eprintln!(
+                "[chain] skipping UTXO with suspicious amount: {} nicks (max {})",
+                amount, MAX_SANE_UTXO_AMOUNT
+            );
+            continue;
+        }
 
         utxos.push(SpendableUtxo {
             name: first_name,

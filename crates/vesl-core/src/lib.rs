@@ -2,30 +2,30 @@
 //!
 //! Four tiers, each a different weight class:
 //!
-//! - **Sigil** — Data commitment. Pure math, zero async. Commit chunks, get a root.
-//! - **Vigil** — Verification. Prove chunks and manifests against trusted roots.
-//! - **Anchor** — Settlement. Kernel boot + chain access for note state transitions.
-//! - **Kraken** — STARK proof. Everything Anchor does, plus proof generation.
+//! - **Mint** — Data commitment. Pure math, zero async. Commit chunks, get a root.
+//! - **Guard** — Verification. Prove chunks and manifests against trusted roots.
+//! - **Settle** — Settlement. Kernel boot + chain access for note state transitions.
+//! - **Forge** — STARK proof. Everything Settle does, plus proof generation.
 //!
-//! Callers pick the tier they need. Sigil users never touch the kernel.
-//! Kraken users get the full pipeline.
+//! Callers pick the tier they need. Mint users never touch the kernel.
+//! Forge users get the full pipeline.
 
-pub mod anchor;
+pub mod settle;
 pub mod config;
 pub mod noun_builder;
 pub mod tx_builder;
-pub mod vigil;
-pub mod sigil;
-pub mod kraken;
+pub mod guard;
+pub mod mint;
+pub mod forge;
 pub mod signing;
 pub mod types;
 
 // Top-level re-exports so callers can write:
-//   use vesl_core::{Sigil, Vigil, Tip5Hash, ProofNode};
-pub use sigil::Sigil;
-pub use vigil::Vigil;
-pub use anchor::Anchor;
-pub use kraken::Kraken;
+//   use vesl_core::{Mint, Guard, Tip5Hash, ProofNode};
+pub use mint::Mint;
+pub use guard::Guard;
+pub use settle::Settle;
+pub use forge::Forge;
 
 pub use types::{
     Chunk, Manifest, Note, NockZkp, NoteState, Retrieval,
@@ -33,7 +33,10 @@ pub use types::{
     ChainClient, ChainConfig, WalletClient, WalletConfig,
     format_tip5, hash_leaf, hash_pair, verify_proof,
     GraftPayload, IntentVerifier, NounSlab,
+    ForgePayload, LeafWithProof,
 };
-pub use anchor::RagVerifier;
+pub use guard::GuardError;
+pub use mint::MintError;
+pub use settle::RagVerifier;
 pub use signing::{SigningError, derive_pubkey, pubkey_hash, sign, key_from_seed_phrase};
 pub use config::{SettlementMode, SettlementConfig, SettlementToml};

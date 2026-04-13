@@ -40,8 +40,8 @@ nockchain-types = { path = "../../nockchain/crates/nockchain-types" }
 nockchain-math = { path = "../../nockchain/crates/nockchain-math" }
 noun-serde = { path = "../../nockchain/crates/noun-serde" }
 
-# --- Anchor kernel (1.5MB, no STARK prover) ---
-kernels-anchor = { path = "../kernels/anchor" }
+# --- Settle kernel (1.5MB, no STARK prover) ---
+kernels-settle = { path = "../kernels/settle" }
 
 [dev-dependencies]
 tempfile = "3"

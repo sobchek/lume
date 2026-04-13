@@ -1,1 +1,0 @@
-../../protocol/lib/anchor-kernel.hoon

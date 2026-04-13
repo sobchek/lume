@@ -8,7 +8,7 @@ use nockapp::noun::slab::{NockJammer, NounSlab};
 use nockapp::wire::{SystemWire, Wire};
 use nockapp::NockApp;
 use nockchain_types::tx_engine::common::{Hash, Nicks};
-use nockchain_types::tx_engine::v1::tx::{Seed, Seeds, Spends};
+use nockchain_types::tx_engine::v1::tx::{Seeds, Spends};
 use nockvm::ext::make_tas;
 use nockvm::noun::{IndirectAtom, D, T};
 use noun_serde::{NounDecode, NounEncode};
@@ -119,15 +119,24 @@ pub fn jam_spends_manual(spends: &Spends) -> anyhow::Result<bytes::Bytes> {
 // Helpers
 // ---------------------------------------------------------------------------
 
+/// Dereference a NounSlab's root noun (C-001).
+///
+/// Centralizes the unsafe dereference. The caller must ensure the slab's
+/// root was populated (via `set_root`, `cue_into`, or `NockApp::poke`).
+fn slab_root(slab: &NounSlab) -> nockvm::noun::Noun {
+    // SAFETY: root() returns &Noun. We copy the Noun (which is Copy).
+    // The slab must outlive any indirect atoms — true for all call sites
+    // in this module since we consume the Noun before the slab drops.
+    unsafe { *slab.root() }
+}
+
 /// Extract a Hash from a kernel effect of shape `[%tag hash-noun]`.
 pub fn extract_hash_from_effect(effects: &[NounSlab], expected_tag: &str) -> anyhow::Result<Hash> {
     let effect_slab = effects
         .first()
         .ok_or_else(|| anyhow::anyhow!("no effects returned from %{expected_tag} poke"))?;
 
-    // SAFETY: effect_slab comes from NockApp::poke, which sets the root.
-    // The slab is live and owned by this scope.
-    let root = unsafe { *effect_slab.root() };
+    let root = slab_root(effect_slab);
     let cell = root
         .as_cell()
         .map_err(|_| anyhow::anyhow!("{expected_tag} effect is not a cell"))?;
@@ -158,6 +167,7 @@ pub fn bytes_to_atom(slab: &mut NounSlab, bytes: &[u8]) -> nockvm::noun::Noun {
 mod tests {
     use super::*;
     use nockchain_types::tx_engine::v1::note::{NoteData, NoteDataEntry};
+    use nockchain_types::tx_engine::v1::tx::Seed;
 
     /// Verify `jam_seeds_manual` output matches `Seeds::to_noun` -> JAM.
     #[test]

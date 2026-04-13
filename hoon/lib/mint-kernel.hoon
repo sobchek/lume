@@ -1,0 +1,1 @@
+../../protocol/lib/mint-kernel.hoon

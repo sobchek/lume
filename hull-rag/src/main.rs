@@ -65,6 +65,11 @@ struct Cli {
     #[arg(long = "serve")]
     serve: bool,
 
+    /// Disable API key authentication (local dev only).
+    /// Without this flag, VESL_API_KEY must be set or the server refuses to start.
+    #[arg(long = "no-auth")]
+    no_auth: bool,
+
     /// Port for the HTTP API server (only used with --serve).
     #[arg(long = "port", default_value = "3000")]
     port: u16,
@@ -350,6 +355,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // --- HTTP server mode ---
     if cli.serve {
+        // C-004: require auth config before starting
+        api::check_auth_config(cli.no_auth).map_err(|e| {
+            eprintln!("ERROR: {e}");
+            e
+        })?;
+        if cli.no_auth {
+            eprintln!("WARNING: --no-auth passed. API key authentication is DISABLED.");
+            eprintln!("         Do not use in production.");
+        }
+
         let provider = create_llm_provider(&cli.ollama_url, &cli.model);
 
         // Pre-load documents if --docs provided with --serve
@@ -398,6 +413,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 settlement: settlement.clone(),
                 stack_size: stack_size.clone(),
                 output_dir: cli.output_dir.clone(),
+                recent_notes: std::collections::VecDeque::new(),
             }),
             llm: provider,
         });
@@ -562,7 +578,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 if signing::is_demo_key(sk) {
                     println!("    Key: demo (fakenet)");
                     if settlement.mode != config::SettlementMode::Fakenet {
-                        eprintln!("WARNING: demo signing key in use outside fakenet mode — do not use in production");
+                        return Err("demo signing key cannot be used outside fakenet mode — generate a real key with `make wallet-init`".into());
                     }
                 } else {
                     println!("    Key: custom (dumbnet)");

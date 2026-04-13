@@ -14,7 +14,7 @@ nockapp = { git = "https://github.com/nockchain/nockchain.git", rev = "{{nockapp
 nockvm = { git = "https://github.com/nockchain/nockchain.git", rev = "{{nockapp_commit_hash}}" }
 nockvm_macros = { git = "https://github.com/nockchain/nockchain.git", rev = "{{nockapp_commit_hash}}" }
 
-# Vesl — Sigil for commitment, no RAG dependencies needed
+# Vesl — Mint for commitment, no RAG dependencies needed
 vesl-core = { path = "../../crates/vesl-core" }
 nock-noun-rs = { path = "../../crates/nock-noun-rs" }
 

@@ -1,7 +1,7 @@
 use std::error::Error;
 use std::fs;
 
-use vesl_core::{Sigil, Tip5Hash};
+use vesl_core::{Mint, Tip5Hash};
 use nock_noun_rs::make_tag_in;
 use nockapp::kernel::boot;
 use nockapp::noun::slab::NounSlab;
@@ -43,12 +43,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     // --- step 2: commit intent data to a Merkle tree ---
 
-    println!("\n=== step 2: Sigil — building Merkle tree ===\n");
-    let mut sigil = Sigil::new();
+    println!("\n=== step 2: Mint — building Merkle tree ===\n");
+    let mut mint = Mint::new();
     let leaves: Vec<&[u8]> = intents.iter().map(|i| i.as_bytes()).collect();
-    sigil.commit(&leaves);
+    mint.commit(&leaves);
 
-    let root: Tip5Hash = sigil.root().expect("committed");
+    let root: Tip5Hash = mint.root().expect("committed");
     println!("  root: {:?}", root);
     println!("  leaves: {}", intents.len());
 
@@ -72,15 +72,15 @@ async fn main() -> Result<(), Box<dyn Error>> {
     // The custom hash gate in the kernel does:
     //   =((hash-leaf data) expected-root)
     //
-    // From Rust, we use Sigil proofs for local verification.
+    // From Rust, we use Mint proofs for local verification.
     // The kernel gate is intentionally simpler — it doesn't
     // need Merkle proofs because it hashes raw data directly.
     // This is the point: your gate can be anything.
 
     println!("\n=== step 4: local proof verification ===\n");
     for (i, intent) in intents.iter().enumerate() {
-        let proof = sigil.proof(i);
-        let leaf_hash = vesl_core::sigil::hash_leaf(intent.as_bytes());
+        let proof = mint.proof(i);
+        let leaf_hash = vesl_core::hash_leaf(intent.as_bytes());
         println!(
             "  intent {}: leaf_hash={:?}, proof_len={}",
             i, &leaf_hash[..2], proof.len()

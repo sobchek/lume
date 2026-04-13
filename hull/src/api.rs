@@ -7,6 +7,7 @@
 //! adjust the Merkle leaf encoding, and add domain-specific endpoints.
 
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use axum::extract::State;
@@ -152,11 +153,16 @@ const MAX_FIELD_BYTES: usize = 100_000;
 // Auth middleware
 // ---------------------------------------------------------------------------
 
-/// API key authentication middleware.
+/// Set at startup when `--no-auth` is passed. Replaces the previous
+/// `unsafe { env::set_var() }` pattern (V-N01).
+static NO_AUTH: AtomicBool = AtomicBool::new(false);
+
+/// API key authentication middleware (C-004).
 ///
 /// Checks `Authorization: Bearer <key>` against HULL_API_KEY env var.
-/// If HULL_API_KEY is not set, all requests are allowed (dev mode).
 /// /health is always exempt.
+///
+/// Auth is required by default. To skip, pass `--no-auth` at startup.
 async fn check_api_key(
     req: axum::extract::Request,
     next: middleware::Next,
@@ -165,9 +171,14 @@ async fn check_api_key(
         return Ok(next.run(req).await);
     }
 
+    // --no-auth disables auth entirely (C-004: explicit opt-out only)
+    if NO_AUTH.load(Ordering::Relaxed) {
+        return Ok(next.run(req).await);
+    }
+
     let expected = match std::env::var("HULL_API_KEY") {
         Ok(k) if !k.is_empty() => k,
-        _ => return Ok(next.run(req).await),
+        _ => return Err(StatusCode::UNAUTHORIZED),
     };
 
     let provided = req
@@ -179,6 +190,22 @@ async fn check_api_key(
     match provided {
         Some(token) if token == expected => Ok(next.run(req).await),
         _ => Err(StatusCode::UNAUTHORIZED),
+    }
+}
+
+/// Pre-flight auth check (C-004). Call before starting the server.
+pub fn check_auth_config(no_auth: bool) -> Result<(), String> {
+    if no_auth {
+        NO_AUTH.store(true, Ordering::Relaxed);
+        return Ok(());
+    }
+    match std::env::var("HULL_API_KEY") {
+        Ok(k) if !k.is_empty() => Ok(()),
+        _ => Err(
+            "HULL_API_KEY is not set. Either set it or pass --no-auth for local dev.\n\
+             Example: HULL_API_KEY=mysecret hull --port 3000"
+                .into(),
+        ),
     }
 }
 
@@ -202,7 +229,7 @@ pub fn router(state: SharedState) -> Router {
                 .buffer(256)
                 .rate_limit(200, std::time::Duration::from_secs(60)),
         )
-        .layer(RequestBodyLimitLayer::new(10 * 1024 * 1024))
+        .layer(RequestBodyLimitLayer::new(4 * 1024 * 1024)) // H-001
         .layer(middleware::from_fn(check_api_key))
         .with_state(state)
 }

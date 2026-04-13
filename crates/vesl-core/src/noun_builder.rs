@@ -6,7 +6,7 @@
 
 use nock_noun_rs::{
     make_atom, make_atom_in, make_cord, make_loobean,
-    new_stack, Cell, D, NounSlab, NockStack, Noun, NounAllocator, T,
+    Cell, D, NounSlab, NockStack, Noun, NounAllocator, T,
 };
 use nockchain_tip5_rs::tip5_to_atom_le_bytes;
 
@@ -117,6 +117,7 @@ pub fn build_register_poke(hull_id: u64, root: &Tip5Hash) -> NounSlab {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use nock_noun_rs::new_stack;
 
     #[test]
     fn loobean_encoding() {
@@ -182,6 +183,8 @@ mod tests {
     fn register_poke_is_cell() {
         let root: Tip5Hash = [1, 2, 3, 4, 5];
         let slab = build_register_poke(7, &root);
-        assert!(unsafe { slab.root() }.is_cell(), "register poke must be a cell");
+        // C-001: centralized dereference
+        let root = unsafe { *slab.root() };
+        assert!(root.is_cell(), "register poke must be a cell");
     }
 }

@@ -34,6 +34,11 @@ use nockchain_tip5_rs::Tip5Hash;
 use nockchain_types::tx_engine::v1::note::{NoteData, NoteDataEntry};
 use nockvm::noun::{IndirectAtom, Noun, D, T};
 
+/// Dereference a NounSlab's root noun (C-001).
+fn slab_root(slab: &NounSlab) -> Noun {
+    unsafe { *slab.root() }
+}
+
 // ---------------------------------------------------------------------------
 // Encoding — Rust values to jammed NoteDataEntry
 // ---------------------------------------------------------------------------
@@ -110,7 +115,7 @@ pub fn find_u64_entry(data: &NoteData, key: &str) -> Result<u64> {
     let mut slab: NounSlab<NockJammer> = NounSlab::new();
     slab.cue_into(entry.blob.clone())
         .context("failed to cue NoteDataEntry blob")?;
-    let noun = unsafe { *slab.root() };
+    let noun = slab_root(&slab);
     let atom = noun
         .as_atom()
         .map_err(|_| anyhow::anyhow!("expected atom for key '{key}', got cell"))?;
@@ -127,7 +132,7 @@ pub fn find_hash_entry(data: &NoteData, key: &str) -> Result<Tip5Hash> {
     let mut slab: NounSlab<NockJammer> = NounSlab::new();
     slab.cue_into(entry.blob.clone())
         .context("failed to cue NoteDataEntry blob")?;
-    let mut noun = unsafe { *slab.root() };
+    let mut noun = slab_root(&slab);
     let mut limbs = [0u64; 5];
     for (i, limb) in limbs.iter_mut().enumerate() {
         let cell = noun.as_cell().map_err(|_| {
@@ -153,7 +158,7 @@ pub fn find_opaque_bytes_entry(data: &NoteData, key: &str) -> Result<Vec<u8>> {
     let mut slab: NounSlab<NockJammer> = NounSlab::new();
     slab.cue_into(entry.blob.clone())
         .context("failed to cue NoteDataEntry blob")?;
-    let noun = unsafe { *slab.root() };
+    let noun = slab_root(&slab);
     let atom = noun
         .as_atom()
         .map_err(|_| anyhow::anyhow!("expected atom for key '{key}', got cell"))?;
@@ -255,7 +260,7 @@ mod tests {
         // CUE the blob and verify it's an atom (1 leaf), not a cell tree
         let mut slab: NounSlab<NockJammer> = NounSlab::new();
         slab.cue_into(entry.blob.clone()).unwrap();
-        let noun = unsafe { *slab.root() };
+        let noun = slab_root(&slab);
         assert!(noun.is_atom(), "opaque bytes entry must CUE to a single atom");
     }
 

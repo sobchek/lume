@@ -8,7 +8,7 @@ pub use nockchain_tip5_rs::{
     format_tip5, hash_leaf, hash_pair, verify_proof, MerkleTree, ProofNode, Tip5Hash, TIP5_ZERO,
 };
 
-// Chain/wallet clients (for Beak/Kraken users)
+// Chain/wallet clients (for Settle/Forge users)
 pub use nockchain_client_rs::{ChainClient, ChainConfig, WalletClient, WalletConfig};
 
 // Noun building (for IntentVerifier trait)
@@ -74,6 +74,23 @@ pub struct Note {
 pub struct GraftPayload {
     pub note: Note,
     pub data: Vec<u8>,
+    pub expected_root: Tip5Hash,
+}
+
+/// A leaf with its Merkle inclusion proof — generic payload unit for Forge.
+/// Mirrors Hoon: `[dat=@ proof=(list [hash=@ side=?])]`
+#[derive(Debug, Clone)]
+pub struct LeafWithProof {
+    pub dat: Vec<u8>,
+    pub proof: Vec<ProofNode>,
+}
+
+/// Generic STARK proof payload — mirrors forge-kernel.hoon's forge-payload.
+/// `[note leaves expected-root]` where leaves carry their own Merkle proofs.
+#[derive(Debug, Clone)]
+pub struct ForgePayload {
+    pub note: Note,
+    pub leaves: Vec<LeafWithProof>,
     pub expected_root: Tip5Hash,
 }
 

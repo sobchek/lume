@@ -54,8 +54,9 @@ impl std::error::Error for SigningError {}
 ///
 /// `sk` is 8 x 32-bit Belt chunks (little-endian order, matching Hoon's t8).
 pub fn derive_pubkey(sk: &[Belt; 8]) -> SchnorrPubkey {
-    let sk_big = belts8_to_ubig(sk);
+    let sk_big = belts8_to_secret(sk);
     let point = ch_scal_big(&sk_big, &A_GEN).expect("valid secret key");
+    // sk_big zeroized on drop (C-002)
     SchnorrPubkey(point)
 }
 
@@ -86,8 +87,8 @@ pub fn pubkey_hash(pk: &SchnorrPubkey) -> Hash {
 ///
 /// Compatible with Hoon's `sign:affine:belt-schnorr:cheetah`.
 pub fn sign(sk: &[Belt; 8], message: &[Belt; 5]) -> Result<SchnorrSignature, SigningError> {
-    let mut sk_big = belts8_to_ubig(sk);
-    if sk_big == UBig::from(0u64) || sk_big >= *G_ORDER {
+    let sk_big = belts8_to_secret(sk);
+    if *sk_big == UBig::from(0u64) || *sk_big >= *G_ORDER {
         return Err(SigningError::InvalidSecretKey);
     }
 
@@ -101,10 +102,10 @@ pub fn sign(sk: &[Belt; 8], message: &[Belt; 5]) -> Result<SchnorrSignature, Sig
     nonce_input.extend_from_slice(message);
     nonce_input.extend_from_slice(sk);
     let nonce_hash = hash_varlen(&mut nonce_input);
-    // Zeroize: nonce_input contains secret key material (V-C02)
+    // Zeroize: nonce_input contains secret key material (C-002)
     for b in nonce_input.iter_mut() { b.0.zeroize(); }
-    let mut nonce = trunc_g_order(&nonce_hash);
-    if nonce == UBig::from(0u64) {
+    let nonce = SecretScalar(trunc_g_order(&nonce_hash));
+    if *nonce == UBig::from(0u64) {
         return Err(SigningError::ZeroNonce);
     }
 
@@ -125,7 +126,8 @@ pub fn sign(sk: &[Belt; 8], message: &[Belt; 5]) -> Result<SchnorrSignature, Sig
     }
 
     // 5. Signature: sig = (nonce + chal * sk) mod g_order
-    let sig = (&nonce + &chal * &sk_big) % &*G_ORDER;
+    // SecretScalar Derefs to UBig, so arithmetic works directly.
+    let sig = (&*nonce + &chal * &*sk_big) % &*G_ORDER;
     if sig == UBig::from(0u64) {
         return Err(SigningError::ZeroSignature);
     }
@@ -136,11 +138,9 @@ pub fn sign(sk: &[Belt; 8], message: &[Belt; 5]) -> Result<SchnorrSignature, Sig
         sig: ubig_to_belts8(&sig),
     };
 
-    // Zeroize sensitive scalar intermediates (V-C02).
-    sk_big = UBig::from(0u64);
-    nonce = UBig::from(0u64);
-    drop(sk_big);
+    // sk_big and nonce are SecretScalar — zeroized on drop (C-002).
     drop(nonce);
+    drop(sk_big);
 
     Ok(result)
 }
@@ -165,13 +165,46 @@ pub fn key_from_seed_phrase(phrase: &str) -> Result<[Belt; 8], SigningError> {
         belts.push(Belt(val));
     }
     let hash = hash_varlen(&mut belts);
-    // Zeroize: belts contains seed-derived key material (V-C02)
+    // Zeroize: belts contains seed-derived key material (C-002)
     for b in belts.iter_mut() { b.0.zeroize(); }
-    let scalar = trunc_g_order(&hash);
-    if scalar == UBig::from(0u64) {
+    let scalar = SecretScalar(trunc_g_order(&hash));
+    if *scalar == UBig::from(0u64) {
         return Err(SigningError::ZeroSeedScalar);
     }
-    Ok(ubig_to_belts8(&scalar))
+    let result = ubig_to_belts8(&scalar);
+    // scalar zeroized on drop (C-002)
+    Ok(result)
+}
+
+// ---------------------------------------------------------------------------
+// Sensitive scalar wrapper (C-002)
+// ---------------------------------------------------------------------------
+
+/// Wrapper for UBig values derived from secret key material.
+///
+/// Overwrites the value with zero on drop. UBig doesn't implement `Zeroize`
+/// (orphan rule prevents external impl), so this is best-effort: it clears
+/// the value but can't guarantee the allocator zeroes freed heap blocks.
+/// Still better than the raw UBig pattern — at minimum prevents the value
+/// from being readable after the wrapper is dropped.
+struct SecretScalar(UBig);
+
+impl Drop for SecretScalar {
+    fn drop(&mut self) {
+        // Overwrite with zero. UBig's internal buffer is freed on reassign.
+        // The old heap allocation is released without zeroing (allocator limitation),
+        // but the logical value is cleared.
+        self.0 = UBig::from(0u64);
+    }
+}
+
+impl std::ops::Deref for SecretScalar {
+    type Target = UBig;
+    fn deref(&self) -> &UBig { &self.0 }
+}
+
+impl std::ops::DerefMut for SecretScalar {
+    fn deref_mut(&mut self) -> &mut UBig { &mut self.0 }
 }
 
 // ---------------------------------------------------------------------------
@@ -182,12 +215,21 @@ pub fn key_from_seed_phrase(phrase: &str) -> Result<[Belt; 8], SigningError> {
 ///
 /// Matches Hoon's `rep 5 sk-as-32-bit-belts`.
 pub(crate) fn belts8_to_ubig(belts: &[Belt; 8]) -> UBig {
-    let mut result = UBig::from(0u64);
-    for belt in belts.iter().rev() {
-        result <<= 32;
-        result += UBig::from(belt.0);
+    // Build from raw bytes in one shot — no intermediate UBig allocations.
+    let mut bytes = [0u8; 32];
+    for (i, belt) in belts.iter().enumerate() {
+        let chunk = (belt.0 as u32).to_le_bytes();
+        bytes[i * 4..i * 4 + 4].copy_from_slice(&chunk);
     }
+    let result = UBig::from_le_bytes(&bytes);
+    bytes.zeroize();
     result
+}
+
+/// Like `belts8_to_ubig` but returns a SecretScalar that zeroizes on drop.
+/// Use for secret key material only.
+fn belts8_to_secret(belts: &[Belt; 8]) -> SecretScalar {
+    SecretScalar(belts8_to_ubig(belts))
 }
 
 /// Split a UBig into 8 x 32-bit Belt chunks (little-endian).

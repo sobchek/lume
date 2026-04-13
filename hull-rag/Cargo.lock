@@ -2788,6 +2788,7 @@ dependencies = [
  "hex",
  "http-body-util",
  "ibig",
+ "kernels-forge",
  "kernels-open-wallet",
  "kernels_vesl",
  "nock-noun-rs",
@@ -3318,6 +3319,10 @@ dependencies = [
  "digest 0.10.7",
  "sha3-asm",
 ]
+
+[[package]]
+name = "kernels-forge"
+version = "0.1.0"
 
 [[package]]
 name = "kernels-open-wallet"

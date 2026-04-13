@@ -57,6 +57,7 @@ tempfile = "3"
 tower = "0.5"
 http-body-util = "0.1"
 kernels-open-wallet = { path = "../../nockchain/crates/kernels/wallet" }
+kernels-forge = { path = "../kernels/forge" }
 
 [features]
 # Real-key settlement against a live nockchain node.

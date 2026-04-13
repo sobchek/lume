@@ -1,33 +1,33 @@
 //! Integration test: vesl-core <-> hull type alignment.
 //!
-//! Verifies the Sigil -> Vigil -> settle poke pipeline works
+//! Verifies the Mint -> Guard -> settle poke pipeline works
 //! end-to-end using vesl-core types re-exported through hull.
 
-use vesl_core::{Sigil, Vigil, RagVerifier, Anchor};
+use vesl_core::{Mint, Guard, RagVerifier, Settle};
 use vesl_core::types::{Chunk, Retrieval, Manifest, Note, NoteState};
-use vesl_core::anchor::build_settle_poke;
+use vesl_core::settle::build_settle_poke;
 
 #[test]
-fn sigil_vigil_settle_pipeline() {
-    // 1. Build a Sigil tree from test chunks
+fn mint_guard_settle_pipeline() {
+    // 1. Build a Mint tree from test chunks
     let chunks: Vec<&[u8]> = vec![
         b"Q3 revenue: $4.2M ARR",
         b"Risk exposure: $800K",
         b"Board approved Series B",
     ];
-    let mut sigil = Sigil::new();
-    let root = sigil.commit(&chunks);
+    let mut mint = Mint::new();
+    let root = mint.commit(&chunks);
 
-    // 2. Verify with Vigil
-    let mut vigil = Vigil::new();
-    vigil.register_root(root);
+    // 2. Verify with Guard
+    let mut guard = Guard::new();
+    guard.register_root(root);
 
     for (i, chunk) in chunks.iter().enumerate() {
-        let proof = sigil.proof(i);
-        assert!(vigil.check(chunk, &proof, &root), "chunk {i} proof failed");
+        let proof = mint.proof(i).unwrap();
+        assert!(guard.check(chunk, &proof, &root), "chunk {i} proof failed");
     }
 
-    // 3. Build manifest and verify via Vigil
+    // 3. Build manifest and verify via Guard
     let retrievals: Vec<Retrieval> = chunks
         .iter()
         .enumerate()
@@ -36,7 +36,7 @@ fn sigil_vigil_settle_pipeline() {
                 id: i as u64,
                 dat: String::from_utf8_lossy(c).into_owned(),
             },
-            proof: sigil.proof(i),
+            proof: mint.proof(i).unwrap(),
             score: 950_000,
         })
         .collect();
@@ -55,7 +55,7 @@ fn sigil_vigil_settle_pipeline() {
         page: 0,
     };
 
-    assert!(vigil.check_manifest(&manifest, &root));
+    assert!(guard.check_manifest(&manifest, &root));
 
     // 4. Build settle poke via free function
     let note = Note {
@@ -65,15 +65,15 @@ fn sigil_vigil_settle_pipeline() {
         state: NoteState::Pending,
     };
     let slab = build_settle_poke(&note, &manifest, &root);
-    // SAFETY: root was set in build_settle_poke via slab.set_root()
-    assert!(unsafe { slab.root() }.is_cell(), "settle poke must be a cell");
+    let root_noun = unsafe { *slab.root() };
+    assert!(root_noun.is_cell(), "settle poke must be a cell");
 }
 
 #[test]
 fn rag_verifier_through_graft_payload() {
     let chunks: Vec<&[u8]> = vec![b"alpha", b"bravo"];
-    let mut sigil = Sigil::new();
-    let root = sigil.commit(&chunks);
+    let mut mint = Mint::new();
+    let root = mint.commit(&chunks);
 
     let retrievals: Vec<Retrieval> = chunks
         .iter()
@@ -83,7 +83,7 @@ fn rag_verifier_through_graft_payload() {
                 id: i as u64,
                 dat: String::from_utf8_lossy(c).into_owned(),
             },
-            proof: sigil.proof(i),
+            proof: mint.proof(i).unwrap(),
             score: 900_000,
         })
         .collect();
@@ -108,10 +108,10 @@ fn rag_verifier_through_graft_payload() {
 }
 
 #[tokio::test]
-async fn anchor_settle_manifest_e2e() {
+async fn settle_manifest_e2e() {
     let chunks: Vec<&[u8]> = vec![b"chunk-one", b"chunk-two"];
-    let mut sigil = Sigil::new();
-    let root = sigil.commit(&chunks);
+    let mut mint = Mint::new();
+    let root = mint.commit(&chunks);
 
     let retrievals: Vec<Retrieval> = chunks
         .iter()
@@ -121,7 +121,7 @@ async fn anchor_settle_manifest_e2e() {
                 id: i as u64,
                 dat: String::from_utf8_lossy(c).into_owned(),
             },
-            proof: sigil.proof(i),
+            proof: mint.proof(i).unwrap(),
             score: 800_000,
         })
         .collect();
@@ -147,10 +147,83 @@ async fn anchor_settle_manifest_e2e() {
         state: NoteState::Pending,
     };
 
-    let mut anchor = Anchor::without_kernel();
-    anchor.register_root(root);
+    let mut settler = Settle::without_kernel();
+    settler.register_root(root).unwrap();
 
-    let settled = anchor.settle_manifest(&note, &manifest, &root).await.unwrap();
+    let settled = settler.settle_manifest(&note, &manifest, &root).await.unwrap();
     assert!(matches!(settled.state, NoteState::Settled));
     assert_eq!(settled.id, 99);
+}
+
+/// Full kernel integration: boot the vesl kernel, register a root,
+/// dispatch a settle poke, and verify the kernel accepts it.
+///
+/// This exercises the path that `Settle::poke_bytes()` enables:
+/// SDK builds the poke, hull dispatches it to the real kernel.
+#[tokio::test]
+async fn settle_poke_through_kernel() {
+    use clap::Parser;
+    use nockapp::kernel::boot;
+    use nockapp::NockApp;
+    use nockapp::wire::{SystemWire, Wire};
+
+    // Boot a throwaway kernel
+    let cli = boot::Cli::parse_from(["test", "--new"]);
+    let mut app: NockApp = boot::setup(kernels_vesl::KERNEL, cli, &[], "vesl-test", None)
+        .await
+        .expect("kernel boot failed");
+
+    // Build test data
+    let chunks: Vec<&[u8]> = vec![b"alpha-data", b"bravo-data"];
+    let mut mint = Mint::new();
+    let root = mint.commit(&chunks);
+
+    // Register root with kernel
+    let register_poke = vesl_core::settle::build_register_poke(7, &root);
+    let reg_effects = app.poke(SystemWire.to_wire(), register_poke).await
+        .expect("register poke failed");
+    assert!(!reg_effects.is_empty(), "register poke should return effects");
+
+    // Build manifest
+    let retrievals: Vec<Retrieval> = chunks
+        .iter()
+        .enumerate()
+        .map(|(i, c)| Retrieval {
+            chunk: Chunk {
+                id: i as u64,
+                dat: String::from_utf8_lossy(c).into_owned(),
+            },
+            proof: mint.proof(i).unwrap(),
+            score: 800_000,
+        })
+        .collect();
+
+    let mut prompt = String::from("test-query");
+    for r in &retrievals {
+        prompt.push('\n');
+        prompt.push_str(&r.chunk.dat);
+    }
+
+    let manifest = Manifest {
+        query: "test-query".into(),
+        results: retrievals,
+        prompt,
+        output: "test-output".into(),
+        page: 0,
+    };
+
+    let note = Note {
+        id: 1,
+        hull: 7,
+        root,
+        state: NoteState::Pending,
+    };
+
+    // Build the settle poke via SDK
+    let settle_poke = build_settle_poke(&note, &manifest, &root);
+
+    // Dispatch to kernel — this is the gap we're closing
+    let effects = app.poke(SystemWire.to_wire(), settle_poke).await
+        .expect("settle poke failed — kernel crashed on valid input");
+    assert!(!effects.is_empty(), "settle poke should return effects (note settled)");
 }

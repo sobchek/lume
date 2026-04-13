@@ -2770,7 +2770,7 @@ dependencies = [
  "clap",
  "hex",
  "http-body-util",
- "kernels-anchor",
+ "kernels-settle",
  "nock-noun-rs",
  "nockapp",
  "nockchain-math",
@@ -3279,7 +3279,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "kernels-anchor"
+name = "kernels-settle"
 version = "0.1.0"
 
 [[package]]

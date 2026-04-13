@@ -2,7 +2,7 @@
 name = "vesl-core"
 version = "0.1.0"
 edition = "2024"
-description = "High-level Vesl SDK — Sigil/Vigil/Anchor/Kraken facades over the extracted crate stack"
+description = "High-level Vesl SDK — Mint/Guard/Settle/Forge facades over the extracted crate stack"
 license = "MIT"
 
 [dependencies]

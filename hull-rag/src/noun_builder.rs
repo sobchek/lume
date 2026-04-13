@@ -1,7 +1,7 @@
 //! Nock noun construction — RAG-specific builders.
 //!
 //! Re-exports generic builders from vesl-core and adds RAG-specific
-//! structures (manifest, settlement payload, settle/prove pokes).
+//! structures (manifest, settlement payload).
 
 pub use vesl_core::noun_builder::{
     hash_to_noun, hash_to_noun_generic,
@@ -9,11 +9,10 @@ pub use vesl_core::noun_builder::{
     chunk_to_noun, retrieval_to_noun, retrieval_list_to_noun,
     pending_note_to_noun, build_register_poke,
 };
+pub use vesl_core::settle::{build_settle_poke, build_prove_poke};
 
 use nock_noun_rs::{
-    make_atom, make_atom_in, make_cord,
-    new_stack, NounSlab, NockStack, Noun, T,
-    jam,
+    make_cord, NockStack, Noun, T,
 };
 
 #[cfg(test)]
@@ -68,61 +67,6 @@ pub fn serialize_settlement(
 ) -> Vec<u8> {
     let payload = build_settlement_payload(stack, note, manifest, expected_root);
     nock_noun_rs::jam_to_bytes(stack, payload)
-}
-
-// ---------------------------------------------------------------------------
-// NounSlab-based poke builders — for NockApp kernel interaction
-// ---------------------------------------------------------------------------
-
-/// Build a `%settle` poke cause in a NounSlab.
-///
-/// Constructs the settlement payload noun, jams it, then wraps as
-/// `[%settle jammed-atom]` matching the kernel's `+$cause`.
-pub fn build_settle_poke(
-    note: &Note,
-    manifest: &Manifest,
-    expected_root: &Tip5Hash,
-) -> NounSlab {
-    let mut stack = new_stack();
-    let payload = build_settlement_payload(&mut stack, note, manifest, expected_root);
-    let jammed = jam(&mut stack, payload);
-    let jam_bytes = {
-        let bytes = jammed.as_ne_bytes();
-        let len = bytes.iter().rposition(|&b| b != 0).map_or(0, |pos| pos + 1);
-        bytes[..len].to_vec()
-    };
-
-    let mut slab = NounSlab::new();
-    let tag = make_atom_in(&mut slab, b"settle");
-    let payload_atom = make_atom_in(&mut slab, &jam_bytes);
-    let cause = T(&mut slab, &[tag, payload_atom]);
-    slab.set_root(cause);
-    slab
-}
-
-/// Build a `%prove` poke cause in a NounSlab.
-///
-/// Same payload as `%settle` but tagged `%prove`.
-pub fn build_prove_poke(
-    note: &Note,
-    manifest: &Manifest,
-    expected_root: &Tip5Hash,
-) -> NounSlab {
-    let mut stack = new_stack();
-    let payload = build_settlement_payload(&mut stack, note, manifest, expected_root);
-    let jammed = jam(&mut stack, payload);
-    let jam_bytes = {
-        let bytes = jammed.as_ne_bytes();
-        let len = bytes.iter().rposition(|&b| b != 0).map_or(0, |pos| pos + 1);
-        bytes[..len].to_vec()
-    };
-
-    let mut slab = NounSlab::new();
-    let tag = make_atom_in(&mut slab, b"prove");
-    let payload_atom = make_atom_in(&mut slab, &jam_bytes);
-    let cause = T(&mut slab, &[tag, payload_atom]);
-    slab.set_root(cause);
-    slab
 }
 
 // ---------------------------------------------------------------------------
@@ -204,7 +148,7 @@ pub fn build_hedge_fund_scenario() -> (Note, Manifest, Tip5Hash) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nock_noun_rs::cue;
+    use nock_noun_rs::{cue, jam, new_stack};
 
     #[test]
     fn jam_and_write_payload() {

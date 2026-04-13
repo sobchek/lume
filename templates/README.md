@@ -26,17 +26,17 @@ The commit-verify-settle lifecycle with three guards: commitment must exist, no 
 
 ---
 
-### 4. [graft-sigil](./graft-sigil/) — Graft: Commitment + Verification
+### 4. [graft-mint](./graft-mint/) — Graft: Commitment + Verification
 
-Your NockApp with Vesl's Sigil + Vigil tiers grafted in. A note store with Merkle commitment — zero verification code in the kernel. The `vesl-graft.hoon` library provides the state fragment and poke dispatcher; your kernel just delegates `%vesl-*` pokes.
+Your NockApp with Vesl's Mint + Guard tiers grafted in. A note store with Merkle commitment — zero verification code in the kernel. The `vesl-graft.hoon` library provides the state fragment and poke dispatcher; your kernel just delegates `%vesl-*` pokes.
 
-**What you learn:** The Graft pattern — composing `vesl-state` into your kernel state, delegating to `vesl-poke`, falling through to `vesl-peek`. How `Sigil::commit()` and `Vigil::check()` work on the Rust side.
+**What you learn:** The Graft pattern — composing `vesl-state` into your kernel state, delegating to `vesl-poke`, falling through to `vesl-peek`. How `Mint::commit()` and `Guard::check()` work on the Rust side.
 
-### 5. [graft-anchor](./graft-anchor/) — Graft: Full Settlement
+### 5. [graft-settle](./graft-settle/) — Graft: Full Settlement
 
-Extends graft-sigil with the Anchor: full settlement lifecycle with replay protection. Notes transition from `%pending` to `%settled`. A report submission system that commits to Merkle roots and creates permanent verifiable records.
+Extends graft-mint with Settle: full settlement lifecycle with replay protection. Notes transition from `%pending` to `%settled`. A report submission system that commits to Merkle roots and creates permanent verifiable records.
 
-**What you learn:** The settlement tier — `%vesl-settle` with three guards (registered root, no replay, valid manifest). How to upgrade from graft-sigil to graft-anchor in three lines.
+**What you learn:** The settlement tier — `%vesl-settle` with three guards (registered root, no replay, valid manifest). How to upgrade from graft-mint to graft-settle in three lines.
 
 ## Quick Start
 

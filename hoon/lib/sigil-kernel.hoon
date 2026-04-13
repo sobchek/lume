@@ -1,1 +1,0 @@
-../../protocol/lib/sigil-kernel.hoon

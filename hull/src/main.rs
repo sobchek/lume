@@ -1,6 +1,6 @@
 //! Hull — Generic Vesl NockApp. Fork this.
 //!
-//! Boots the anchor kernel (1.5MB, no STARK prover) and serves
+//! Boots the settle kernel (1.5MB, no STARK prover) and serves
 //! three endpoints: /commit, /settle, /verify.
 //!
 //! Community developers: add domain-specific endpoints, replace
@@ -74,6 +74,11 @@ struct Cli {
     /// Path to a file containing the seed phrase (one line, trimmed).
     #[arg(long = "seed-phrase-file")]
     seed_phrase_file: Option<PathBuf>,
+
+    /// Disable API key authentication (local dev only).
+    /// Without this flag, HULL_API_KEY must be set or the server refuses to start.
+    #[arg(long = "no-auth")]
+    no_auth: bool,
 }
 
 #[tokio::main]
@@ -111,17 +116,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("=== Hull (Generic Vesl NockApp) ===\n");
     println!("    Settlement: {settlement}");
 
-    // --- Boot the anchor kernel (no STARK prover jets) ---
-    println!("[0] Booting anchor kernel...");
+    // --- Boot the settle kernel (no STARK prover jets) ---
+    println!("[0] Booting settle kernel...");
     let app: NockApp = boot::setup(
-        kernels_anchor::KERNEL,
+        kernels_settle::KERNEL,
         cli.boot,
-        &[], // no prover jets -- anchor kernel has no STARK
+        &[], // no prover jets -- settle kernel has no STARK
         "hull",
         None,
     )
     .await?;
-    println!("    Kernel booted ({} bytes JAM)", kernels_anchor::KERNEL.len());
+    println!("    Kernel booted ({} bytes JAM)", kernels_settle::KERNEL.len());
+
+    // C-004: require auth config before starting
+    api::check_auth_config(cli.no_auth).map_err(|e| {
+        eprintln!("ERROR: {e}");
+        e
+    })?;
+    if cli.no_auth {
+        eprintln!("WARNING: --no-auth passed. API key authentication is DISABLED.");
+        eprintln!("         Do not use in production.");
+    }
 
     // --- Start HTTP server ---
     let state = Arc::new(Mutex::new(api::AppState {

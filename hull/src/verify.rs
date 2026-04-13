@@ -63,7 +63,7 @@ impl IntentVerifier for FieldVerifier {
 
     fn build_settle_poke(&self, payload: &GraftPayload) -> anyhow::Result<NounSlab> {
         // Generic hull: settle = register root with note metadata.
-        // The anchor kernel's %register poke is the settlement primitive
+        // The settle kernel's %register poke is the settlement primitive
         // for domains that don't need a custom settle handler.
         Ok(vesl_core::noun_builder::build_register_poke(
             payload.note.hull,
@@ -79,7 +79,7 @@ impl IntentVerifier for FieldVerifier {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use vesl_core::{Sigil, format_tip5};
+    use vesl_core::{Mint, format_tip5};
 
     #[test]
     fn field_verifier_valid() {
@@ -91,15 +91,15 @@ mod tests {
         let leaf_data: Vec<Vec<u8>> = fields.iter().map(|f| field_to_leaf_bytes(f)).collect();
         let leaf_refs: Vec<&[u8]> = leaf_data.iter().map(|v| v.as_slice()).collect();
 
-        let mut sigil = Sigil::new();
-        let root = sigil.commit(&leaf_refs);
+        let mut mint = Mint::new();
+        let root = mint.commit(&leaf_refs);
 
         let fields_with_proof: Vec<FieldWithProof> = fields
             .into_iter()
             .enumerate()
             .map(|(i, field)| FieldWithProof {
                 field,
-                proof: sigil.proof(i),
+                proof: mint.proof(i),
             })
             .collect();
 
@@ -118,13 +118,13 @@ mod tests {
         let leaf_data: Vec<Vec<u8>> = fields.iter().map(|f| field_to_leaf_bytes(f)).collect();
         let leaf_refs: Vec<&[u8]> = leaf_data.iter().map(|v| v.as_slice()).collect();
 
-        let mut sigil = Sigil::new();
-        let root = sigil.commit(&leaf_refs);
+        let mut mint = Mint::new();
+        let root = mint.commit(&leaf_refs);
 
         // Tamper with the value
         let tampered = vec![FieldWithProof {
             field: Field { key: "commit".into(), value: "TAMPERED".into() },
-            proof: sigil.proof(0),
+            proof: mint.proof(0),
         }];
 
         let data = serde_json::to_vec(&tampered).unwrap();

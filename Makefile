@@ -6,7 +6,7 @@
 #   make build                        (compile hull)
 #   make demo-local                   (run the pipeline, no chain)
 
-.PHONY: help setup build build-dumbnet test test-unit demo-fakenet demo-local demo-dumbnet wallet-init kernel clean status
+.PHONY: help setup build build-dumbnet test test-unit demo-fakenet demo-local demo-dumbnet wallet-init kernel forge clean status inspect
 
 # ---------------------------------------------------------------------------
 # Config: vesl.toml → env var fallback → empty
@@ -40,6 +40,7 @@ help:
 	@echo "  demo-dumbnet   Demo against a running nockchain node (requires wallet init)"
 	@echo "  wallet-init    Generate a new keypair for dumbnet mode"
 	@echo "  kernel         Recompile Hoon kernel to assets/vesl.jam"
+	@echo "  inspect        Show kernel state (tree, settled notes) from a running hull"
 	@echo "  clean          Remove build artifacts and runtime state"
 	@echo "  status         Show fakenet status"
 	@echo ""
@@ -140,7 +141,29 @@ kernel: check-cargo check-nock-home check-hoonc
 	hoonc --new protocol/lib/vesl-kernel.hoon hoon/
 	cp out.jam assets/vesl.jam
 	rm -f out.jam
-	@echo "Kernel compiled -> assets/vesl.jam"
+	cd assets && sha256sum *.jam > CHECKSUMS.sha256
+	@echo "Kernel compiled -> assets/vesl.jam (checksums updated)"
+
+forge: check-cargo check-nock-home check-hoonc
+	hoonc --new protocol/lib/forge-kernel.hoon hoon/
+	cp out.jam assets/forge.jam
+	rm -f out.jam
+	cd assets && sha256sum *.jam > CHECKSUMS.sha256
+	@echo "Forge kernel compiled -> assets/forge.jam (checksums updated)"
+
+inspect:
+	@PORT=$${API_PORT:-3000}; \
+	if ! command -v curl >/dev/null 2>&1; then \
+		echo "Error: curl not found."; exit 1; \
+	fi; \
+	RESP=$$(curl -sf "http://127.0.0.1:$$PORT/status" 2>/dev/null) || { \
+		echo "No hull running on port $$PORT."; \
+		echo "Start one first: make build && cd hull-rag && cargo run -- --new --serve"; \
+		exit 1; \
+	}; \
+	echo "=== Vesl Kernel State ==="; \
+	echo "$$RESP" | python3 -m json.tool 2>/dev/null || echo "$$RESP"; \
+	echo ""
 
 clean:
 	@if [ -x scripts/fakenet-harness.sh ]; then ./scripts/fakenet-harness.sh stop 2>/dev/null || true; fi

@@ -1,0 +1,1 @@
+../../protocol/lib/guard-kernel.hoon

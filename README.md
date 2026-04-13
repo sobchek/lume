@@ -51,7 +51,60 @@ hoon/                     symlink tree (setup-hoon-tree.sh creates links to $NOC
 ```
 
 
+## Nockchain for Rust Developers
+
+If you're coming from EVM or Solidity, this table will save you a few hours of head-scratching.
+
+| Nockchain | EVM equivalent |
+|-----------|---------------|
+| kernel | smart contract |
+| hull | dApp backend / off-chain server |
+| poke | transaction / state-changing call |
+| peek | view / staticcall (read-only) |
+| hoonc | solc (compiler) |
+| NockApp | dApp |
+| the subject | contract storage |
+| crash | revert |
+| nockvm | EVM (deterministic interpreter, but in-process — not a separate VM) |
+
+A **kernel** is a Hoon program compiled to Nock that runs inside a NockApp. It holds state in *the subject* (think: a single persistent storage slot that's the entire state tree) and responds to pokes and peeks. Pokes mutate state and return effects; peeks read without changing anything. If something goes wrong, the kernel crashes — equivalent to a Solidity `revert`, the state change gets discarded.
+
+The **hull** is the off-chain Rust process that hosts the kernel, handles HTTP, talks to the chain, and does the heavy lifting (Merkle trees, LLM calls, transaction construction). Kernels don't do I/O — the hull does.
+
+**hoonc** compiles Hoon source to a `.jam` binary. No ABI, no deploy step — the compiled noun *is* the program.
+
+If you know Foundry, think of `make demo-local` as `forge test` — it runs the full pipeline locally without touching a chain.
+
+
 ## Quick Start
+
+Two ways in, depending on what you're building.
+
+### Docker — full environment, zero setup
+
+Use Docker if you want to run the Vesl pipeline (ingest, query, settle) or hack on the Vesl codebase itself. The container ships hoonc, nockchain, hull-rag, and all compiled kernels. Nothing to install on the host.
+
+```bash
+docker build -t zkvesl/vesl:latest - < Dockerfile
+docker run -it zkvesl/vesl:latest
+make demo-local
+```
+
+### NockUp — add verification to your NockApp
+
+Use NockUp if you already have a NockApp and want to graft Vesl's Merkle commitment and proof verification onto it. You don't need the full Vesl repo — just the SDK crate and the Hoon libraries.
+
+```bash
+nockup package add zkvesl/vesl-graft zkvesl/vesl-merkle
+# then add vesl-core to Cargo.toml:
+# vesl-core = { git = "https://github.com/zkVesl/vesl", path = "crates/vesl-core" }
+```
+
+See [GRAFTING.md](templates/GRAFTING.md) for the full integration walkthrough (10 steps, 3 lines of poke delegation).
+
+### Manual Setup
+
+For contributors who want a local nockchain checkout and bare-metal builds.
 
 Prerequisites: [nockchain](https://github.com/zorp-corp/nockchain) monorepo cloned and built at a sibling path, with `hoonc` and `nockchain` in your PATH. Rust nightly `2025-11-26` (pinned in `hull/rust-toolchain`).
 
@@ -65,6 +118,8 @@ make demo-local                     # run the pipeline (no chain needed)
 ```
 
 Run `make help` for all available targets. Configuration lives in `vesl.toml` — see `vesl.toml.example` for options. Environment variables (`NOCK_HOME`, `OLLAMA_URL`, `API_PORT`) override config file values.
+
+After running the demo, `make inspect` shows what settled — current root, note count, recent note summaries. Requires a running hull (`--serve` mode).
 
 
 ## Test

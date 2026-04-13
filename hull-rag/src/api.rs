@@ -24,6 +24,7 @@
 //! | GET    | `/health` | Liveness check                                    |
 
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use axum::extract::State;
@@ -41,12 +42,59 @@ use tower_http::limit::RequestBodyLimitLayer;
 use crate::chain;
 use crate::config::SettlementConfig;
 use crate::llm::{self, LlmProvider};
-use crate::merkle::MerkleTree;
+use crate::merkle::{hash_leaf, MerkleTree};
 use crate::noun_builder;
 use crate::retrieve::Retriever;
 use crate::signing;
 use crate::tx_builder;
 use crate::types::*;
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/// Dereference a NounSlab's root noun (C-001).
+fn slab_root(slab: &NounSlab) -> nockapp::Noun {
+    unsafe { *slab.root() }
+}
+
+/// Derive a note ID from query + timestamp + random nonce (H-005).
+///
+/// Prevents cross-instance replay: two hull instances processing the same
+/// documents can't produce colliding note/hull/root tuples.
+fn derive_note_id(query: &str) -> u64 {
+    let timestamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    let mut nonce = [0u8; 16];
+    // getrandom fills with OS entropy. If unavailable, fall back to timestamp.
+    if getrandom::fill(&mut nonce).is_err() {
+        nonce[..8].copy_from_slice(&timestamp.to_le_bytes()[..8]);
+    }
+    let mut content = Vec::with_capacity(query.len() + 16 + 16);
+    content.extend_from_slice(query.as_bytes());
+    content.extend_from_slice(&(timestamp as u64).to_le_bytes());
+    content.extend_from_slice(&nonce);
+    let digest = hash_leaf(&content);
+    // Truncate tip5 digest to u64 (first limb). Ensure non-zero.
+    let id = digest[0];
+    if id == 0 { digest[1] | 1 } else { id }
+}
+
+/// Hash a retrieval set for TOCTOU detection (C-003).
+///
+/// Hashes chunk IDs + data bytes into a single tip5 digest.
+/// Compared between phase 1 (build) and phase 3 (settle) to detect
+/// mutations that occurred while the lock was released for LLM inference.
+fn hash_retrievals(retrievals: &[Retrieval]) -> Tip5Hash {
+    let mut content = Vec::new();
+    for r in retrievals {
+        content.extend_from_slice(&r.chunk.id.to_le_bytes());
+        content.extend_from_slice(r.chunk.dat.as_bytes());
+    }
+    hash_leaf(&content)
+}
 
 // ---------------------------------------------------------------------------
 // Shared application state
@@ -71,7 +119,20 @@ pub struct AppState {
     pub stack_size: NockStackSize,
     /// Output directory for persistence files (note_counter, etc.).
     pub output_dir: PathBuf,
+    /// Ring buffer of recently settled notes (last N summaries).
+    pub recent_notes: std::collections::VecDeque<NoteSummary>,
 }
+
+/// Summary of a settled note, kept in a ring buffer for /status.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NoteSummary {
+    pub note_id: u64,
+    pub root: String,
+    pub query_preview: String,
+    pub settled: bool,
+}
+
+const MAX_RECENT_NOTES: usize = 20;
 
 /// Wrapper that holds the mutex-protected state and the LLM provider separately.
 /// LLM inference can take 30+ seconds; keeping it outside the mutex prevents
@@ -189,6 +250,7 @@ pub struct StatusResponse {
     pub notes_settled: u64,
     pub hull_id: u64,
     pub settlement_mode: String,
+    pub recent_notes: Vec<NoteSummary>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -241,11 +303,16 @@ const MAX_PROOF_BYTES: usize = 3_500_000;
 // Auth middleware (V-C01)
 // ---------------------------------------------------------------------------
 
-/// API key authentication middleware.
+/// Set at startup when `--no-auth` is passed. Replaces the previous
+/// `unsafe { env::set_var() }` pattern (V-N01).
+static NO_AUTH: AtomicBool = AtomicBool::new(false);
+
+/// API key authentication middleware (C-004).
 ///
 /// Checks `Authorization: Bearer <key>` against VESL_API_KEY env var.
-/// If VESL_API_KEY is not set, all requests are allowed (dev mode).
 /// /health is always exempt (liveness probes).
+///
+/// Auth is required by default. To skip, pass `--no-auth` at startup.
 async fn check_api_key(
     req: axum::extract::Request,
     next: middleware::Next,
@@ -254,9 +321,14 @@ async fn check_api_key(
         return Ok(next.run(req).await);
     }
 
+    // --no-auth disables auth entirely (C-004: explicit opt-out only)
+    if NO_AUTH.load(Ordering::Relaxed) {
+        return Ok(next.run(req).await);
+    }
+
     let expected = match std::env::var("VESL_API_KEY") {
         Ok(k) if !k.is_empty() => k,
-        _ => return Ok(next.run(req).await),
+        _ => return Err(StatusCode::UNAUTHORIZED),
     };
 
     let provided = req
@@ -268,6 +340,23 @@ async fn check_api_key(
     match provided {
         Some(token) if token == expected => Ok(next.run(req).await),
         _ => Err(StatusCode::UNAUTHORIZED),
+    }
+}
+
+/// Pre-flight auth check (C-004). Call before starting the server.
+/// Returns an error message if auth is misconfigured.
+pub fn check_auth_config(no_auth: bool) -> Result<(), String> {
+    if no_auth {
+        NO_AUTH.store(true, Ordering::Relaxed);
+        return Ok(());
+    }
+    match std::env::var("VESL_API_KEY") {
+        Ok(k) if !k.is_empty() => Ok(()),
+        _ => Err(
+            "VESL_API_KEY is not set. Either set it or pass --no-auth for local dev.\n\
+             Example: VESL_API_KEY=mysecret hull-rag --serve"
+                .into(),
+        ),
     }
 }
 
@@ -292,7 +381,7 @@ pub fn router(state: SharedState) -> Router {
                 .buffer(256)
                 .rate_limit(200, std::time::Duration::from_secs(60)),
         )
-        .layer(RequestBodyLimitLayer::new(10 * 1024 * 1024)) // 10 MB hard limit (V-003a)
+        .layer(RequestBodyLimitLayer::new(4 * 1024 * 1024)) // 4 MB hard limit (H-001)
         .layer(middleware::from_fn(check_api_key)) // V-C01: API key auth
         .with_state(state)
 }
@@ -317,6 +406,7 @@ async fn status(State(state): State<SharedState>) -> Json<StatusResponse> {
         notes_settled: st.note_counter,
         hull_id: st.hull_id,
         settlement_mode: st.settlement.mode.to_string(),
+        recent_notes: st.recent_notes.iter().cloned().collect(),
     })
 }
 
@@ -416,11 +506,16 @@ async fn ingest_handler(
         )
     })?
     .map_err(|e| {
+        let root_hex = crate::merkle::format_tip5(&root);
         eprintln!("kernel register poke failed: {e}");
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ErrorBody {
-                error: "internal error".into(),
+                error: format!(
+                    "register poke failed for root {} — likely cause: \
+                     kernel crashed on duplicate root or malformed payload: {e}",
+                    root_hex,
+                ),
             }),
         )
     })?;
@@ -440,7 +535,7 @@ async fn query_handler(
     Json(req): Json<QueryRequest>,
 ) -> Result<Json<QueryResponse>, (StatusCode, Json<ErrorBody>)> {
     // --- Phase 1: read state under lock, build retrievals + prompt ---
-    let (retrievals, retrieval_infos, prompt, prompt_bytes, root, hull_id, hits_len) = {
+    let (retrievals, retrieval_infos, prompt, prompt_bytes, root, hull_id, hits_len, retrieval_digest) = {
         let st = state.inner.lock().await;
 
         let tree = st.tree.as_ref().ok_or_else(|| {
@@ -506,11 +601,14 @@ async fn query_handler(
             })
             .collect();
 
+        // C-003: hash the retrieval set for TOCTOU detection across phases
+        let retrieval_digest = hash_retrievals(&retrievals);
+
         let prompt = llm::build_prompt(&req.query, &retrieved_chunks);
         let prompt_bytes = prompt.len();
         let hits_len = hits.len();
 
-        (retrievals, retrieval_infos, prompt, prompt_bytes, root, st.hull_id, hits_len)
+        (retrievals, retrieval_infos, prompt, prompt_bytes, root, st.hull_id, hits_len, retrieval_digest)
     }; // lock dropped here
 
     // --- Phase 2: LLM inference without lock (V-003b) ---
@@ -537,6 +635,17 @@ async fn query_handler(
         ));
     }
 
+    // C-003: verify retrieval set integrity — catch mutations that preserved the root
+    // but changed chunk data (e.g. concurrent /ingest with same-root re-ingestion)
+    if hash_retrievals(&retrievals) != retrieval_digest {
+        return Err((
+            StatusCode::CONFLICT,
+            Json(ErrorBody {
+                error: "retrieval set changed during inference — retry query".into(),
+            }),
+        ));
+    }
+
     // Build manifest
     let manifest = Manifest {
         query: req.query.clone(),
@@ -547,9 +656,10 @@ async fn query_handler(
     };
 
     // Create note + settle via kernel poke
+    // H-005: derive note ID from hash(query + timestamp + nonce) instead of counter
+    let note_id = derive_note_id(&req.query);
     st.note_counter += 1;
     save_note_counter(&st.output_dir, st.note_counter);
-    let note_id = st.note_counter;
 
     let note = Note {
         id: note_id,
@@ -574,11 +684,16 @@ async fn query_handler(
         )
     })?
     .map_err(|e| {
-        eprintln!("kernel settle poke failed: {e}");
+        let root_hex = crate::merkle::format_tip5(&root);
+        eprintln!("kernel settle poke failed for note {note_id}: {e}");
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ErrorBody {
-                error: "internal error".into(),
+                error: format!(
+                    "settle poke failed for note {note_id} (root {}) — \
+                     likely cause: root not registered or manifest hash mismatch: {e}",
+                    root_hex,
+                ),
             }),
         )
     })?;
@@ -648,6 +763,22 @@ async fn query_handler(
             }
             }
         }
+    }
+
+    // Record in recent notes ring buffer
+    let query_preview = if req.query.len() > 60 {
+        format!("{}...", &req.query[..60])
+    } else {
+        req.query.clone()
+    };
+    st.recent_notes.push_back(NoteSummary {
+        note_id,
+        root: root_hex.clone(),
+        query_preview,
+        settled: true,
+    });
+    if st.recent_notes.len() > MAX_RECENT_NOTES {
+        st.recent_notes.pop_front();
     }
 
     Ok(Json(QueryResponse {
@@ -723,7 +854,7 @@ async fn prove_handler(
     Json(req): Json<QueryRequest>,
 ) -> Result<Json<ProveResponse>, (StatusCode, Json<ErrorBody>)> {
     // --- Phase 1: read state under lock, build retrievals + prompt ---
-    let (retrievals, retrieval_infos, prompt, prompt_bytes, root, hull_id, hits_len) = {
+    let (retrievals, retrieval_infos, prompt, prompt_bytes, root, hull_id, hits_len, retrieval_digest) = {
         let st = state.inner.lock().await;
 
         // Pre-flight: reject if stack is too small for STARK proving (~3GB needed)
@@ -803,11 +934,14 @@ async fn prove_handler(
             })
             .collect();
 
+        // C-003: hash the retrieval set for TOCTOU detection across phases
+        let retrieval_digest = hash_retrievals(&retrievals);
+
         let prompt = llm::build_prompt(&req.query, &retrieved_chunks);
         let prompt_bytes = prompt.len();
         let hits_len = hits.len();
 
-        (retrievals, retrieval_infos, prompt, prompt_bytes, root, st.hull_id, hits_len)
+        (retrievals, retrieval_infos, prompt, prompt_bytes, root, st.hull_id, hits_len, retrieval_digest)
     }; // lock dropped here
 
     // --- Phase 2: LLM inference without lock (V-003b) ---
@@ -834,6 +968,16 @@ async fn prove_handler(
         ));
     }
 
+    // C-003: verify retrieval set integrity
+    if hash_retrievals(&retrievals) != retrieval_digest {
+        return Err((
+            StatusCode::CONFLICT,
+            Json(ErrorBody {
+                error: "retrieval set changed during inference — retry query".into(),
+            }),
+        ));
+    }
+
     // Build manifest
     let manifest = Manifest {
         query: req.query.clone(),
@@ -844,9 +988,10 @@ async fn prove_handler(
     };
 
     // Create note + prove via kernel poke (%prove instead of %settle)
+    // H-005: derive note ID from hash(query + timestamp + nonce) instead of counter
+    let note_id = derive_note_id(&req.query);
     st.note_counter += 1;
     save_note_counter(&st.output_dir, st.note_counter);
-    let note_id = st.note_counter;
 
     let note = Note {
         id: note_id,
@@ -873,11 +1018,17 @@ async fn prove_handler(
         )
     })?
     .map_err(|e| {
-        eprintln!("[prove] kernel %prove poke ERRORED: {e}");
+        let root_hex = crate::merkle::format_tip5(&root);
+        eprintln!("[prove] kernel %prove poke ERRORED for note {note_id}: {e}");
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ErrorBody {
-                error: "internal error".into(),
+                error: format!(
+                    "prove poke failed for note {note_id} (root {}) — \
+                     likely cause: root not registered, manifest mismatch, \
+                     or insufficient stack size for STARK proving: {e}",
+                    root_hex,
+                ),
             }),
         )
     })?;
@@ -895,9 +1046,7 @@ async fn prove_handler(
     let mut settled = false;
 
     if let Some(effect_slab) = effects.first() {
-        // SAFETY: effect_slab comes from NockApp::poke, which sets the root.
-        // The slab is live and owned by this scope.
-        let root_noun = unsafe { *effect_slab.root() };
+        let root_noun = slab_root(effect_slab);
         eprintln!("[prove] effect root: is_cell={}", root_noun.is_cell());
 
         // Check for [%prove-failed ~] — head is the cord "prove-failed"
@@ -1121,6 +1270,24 @@ async fn prove_handler(
             } else {
                 eprintln!("[prove] no chain config");
             }
+        }
+    }
+
+    // Record in recent notes ring buffer
+    if settled {
+        let query_preview = if req.query.len() > 60 {
+            format!("{}...", &req.query[..60])
+        } else {
+            req.query.clone()
+        };
+        st.recent_notes.push_back(NoteSummary {
+            note_id,
+            root: root_hex.clone(),
+            query_preview,
+            settled: true,
+        });
+        if st.recent_notes.len() > MAX_RECENT_NOTES {
+            st.recent_notes.pop_front();
         }
     }
 
@@ -1373,6 +1540,9 @@ mod tests {
 
     /// Create a test AppState with the real kernel.
     async fn test_state() -> SharedState {
+        // Disable auth for unit tests (mirrors --no-auth at startup)
+        check_auth_config(true).ok();
+
         // Parse from empty args to get all defaults
         let cli = boot::Cli::parse_from(["test", "--new"]);
         let app: NockApp =
@@ -1392,6 +1562,7 @@ mod tests {
                 settlement: SettlementConfig::local(),
                 stack_size: NockStackSize::Normal,
                 output_dir: std::env::temp_dir(),
+                recent_notes: std::collections::VecDeque::new(),
             }),
             llm: Box::new(llm::StubProvider),
         })

@@ -118,6 +118,14 @@ Six layers of defense, each independently verified by the adversarial test suite
 | Registration guard | Settlement against uncommitted roots |
 | Replay guard | Duplicate settlement attempts |
 
+## Crash Semantics
+
+The kernel crashes on invalid input. This is correct — crash is revert. There is no partial failure, no error code, no exception object. The kernel either accepts the payload and transitions state, or it crashes and nothing changes. A valid STARK proof of the settlement computation is proof that all checks passed.
+
+The SDK (`vesl-core`) validates payloads before they reach the kernel. `Guard::validate_manifest()` and `Settle::settle()` catch the most common failures — unregistered roots, duplicate chunk IDs, prompt reconstruction mismatches, duplicate note IDs — and return specific error messages. The hull wraps kernel poke errors with context (which poke, which note, likely cause).
+
+If a poke still crashes after pre-flight checks pass, the input violated a kernel guard that the SDK doesn't cover. This is a real bug to investigate, not a normal error path.
+
 ## Test Coverage
 
 | Suite | Tests | What It Covers |
