@@ -387,7 +387,8 @@ pub fn build_register_poke(hull_id: u64, root: &Tip5Hash) -> NounSlab {
     let mut slab = NounSlab::new();
 
     let tag = make_tag_in(&mut slab, "register");
-    let hull = nockvm::noun::D(hull_id);
+    // Public API: callers may pass hash-derived hull IDs above DIRECT_MAX.
+    let hull = atom_from_u64(&mut slab, hull_id);
     let root_bytes = tip5_to_atom_le_bytes(root);
     let root_noun = make_atom_in(&mut slab, &root_bytes);
 
@@ -430,7 +431,7 @@ fn build_settlement_payload_in(
         .results
         .iter()
         .map(|r| {
-            let chunk_id = nockvm::noun::D(r.chunk.id);
+            let chunk_id = atom_from_u64(slab, r.chunk.id);
             let chunk_dat = make_cord_in(slab, &r.chunk.dat);
             let chunk = nockvm::noun::T(slab, &[chunk_id, chunk_dat]);
 

@@ -2,7 +2,7 @@ use std::error::Error;
 use std::fs;
 
 use vesl_core::{Guard, Mint, Tip5Hash, tip5_to_atom_le_bytes};
-use nock_noun_rs::{jam_to_bytes, make_atom_in, make_tag_in, new_stack};
+use nock_noun_rs::{atom_from_u64, jam_to_bytes, make_atom_in, make_tag_in, new_stack};
 use nockapp::kernel::boot;
 use nockapp::noun::slab::NounSlab;
 use nockapp::wire::{SystemWire, Wire};
@@ -70,7 +70,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
         let tag = make_tag_in(&mut slab, "vesl-register");
         let root_bytes = tip5_to_atom_le_bytes(&root);
         let root_atom = make_atom_in(&mut slab, &root_bytes);
-        let poke = T(&mut slab, &[tag, D(hull_id), root_atom]);
+        // atom_from_u64 handles values above DIRECT_MAX (2^63 − 1); prefer it
+        // over D() whenever the value could be hash-derived.
+        let hull = atom_from_u64(&mut slab, hull_id);
+        let poke = T(&mut slab, &[tag, hull, root_atom]);
         slab.set_root(poke);
 
         let effects = app.poke(SystemWire.to_wire(), slab).await?;
@@ -93,7 +96,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
         let tag = make_tag_in(&mut slab, "vesl-register");
         let rb = tip5_to_atom_le_bytes(&single_root);
         let root_atom = make_atom_in(&mut slab, &rb);
-        let poke = T(&mut slab, &[tag, D(settle_hull), root_atom]);
+        let hull = atom_from_u64(&mut slab, settle_hull);
+        let poke = T(&mut slab, &[tag, hull, root_atom]);
         slab.set_root(poke);
         app.poke(SystemWire.to_wire(), slab).await?;
     }
@@ -103,8 +107,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
         let mut slab = NounSlab::new();
         let rb = tip5_to_atom_le_bytes(&single_root);
 
-        let note_id = D(1);
-        let note_hull = D(settle_hull);
+        let note_id = atom_from_u64(&mut slab, 1);
+        let note_hull = atom_from_u64(&mut slab, settle_hull);
         let note_root = make_atom_in(&mut slab, &rb);
         let pending_tag = make_tag_in(&mut slab, "pending");
         let state = T(&mut slab, &[pending_tag, D(0)]);
@@ -135,8 +139,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
         let mut slab = NounSlab::new();
         let rb = tip5_to_atom_le_bytes(&single_root);
 
+        let note_id = atom_from_u64(&mut slab, 1);
+        let note_hull = atom_from_u64(&mut slab, settle_hull);
         let note = T(&mut slab, &[
-            D(1), D(settle_hull),
+            note_id, note_hull,
             make_atom_in(&mut slab, &rb),
             T(&mut slab, &[make_tag_in(&mut slab, "pending"), D(0)]),
         ]);

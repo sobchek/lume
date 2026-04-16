@@ -54,7 +54,7 @@ pub fn proof_list_to_noun(stack: &mut NockStack, proof: &[ProofNode]) -> Noun {
 
 /// `+$chunk  [id=chunk-id dat=@t]`
 pub fn chunk_to_noun(stack: &mut NockStack, chunk: &Chunk) -> Noun {
-    let id = D(chunk.id);
+    let id = atom_from_u64(stack, chunk.id);
     let dat = make_cord(stack, &chunk.dat);
     T(stack, &[id, dat])
 }
@@ -104,7 +104,8 @@ pub fn pending_note_to_noun(stack: &mut NockStack, note: &Note) -> Noun {
 pub fn build_register_poke(hull_id: u64, root: &Tip5Hash) -> NounSlab {
     let mut slab = NounSlab::new();
     let tag = make_atom_in(&mut slab, b"register");
-    let id = D(hull_id);
+    // Public API: callers may pass hash-derived hull IDs above DIRECT_MAX.
+    let id = atom_from_u64(&mut slab, hull_id);
     let root_noun = hash_to_noun_generic(&mut slab, root);
     let cause = T(&mut slab, &[tag, id, root_noun]);
     slab.set_root(cause);

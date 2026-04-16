@@ -46,7 +46,8 @@ fn slab_root(slab: &NounSlab) -> Noun {
 /// Create a NoteDataEntry with a jammed u64 atom value.
 pub fn jam_u64_entry(key: &str, value: u64) -> NoteDataEntry {
     let mut slab: NounSlab<NockJammer> = NounSlab::new();
-    let noun = D(value);
+    // D() panics on values > DIRECT_MAX; u64_to_noun (below) handles both.
+    let noun = u64_to_noun(&mut slab, value);
     slab.set_root(noun);
     let jammed = slab.jam();
     NoteDataEntry::new(key.to_string(), jammed)
