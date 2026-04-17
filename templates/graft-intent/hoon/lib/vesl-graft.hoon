@@ -66,6 +66,18 @@
 ::
 ++  epoch-cap  ^~((mul 1.000 1.000))
 ::
+::  +registered-cap: upper bound on the `registered` map.
+::
+::  AUDIT 2026-04-17 H-02: without a cap, any caller who can poke
+::  %vesl-register cheaply can grow state without bound. 10M is the
+::  static cap here — large enough that no legitimate deployment
+::  hits it, small enough that a spammer can't brick kernel memory.
+::  Future work: signed-envelope registration that requires a
+::  capability token, so the cap can be lifted for high-throughput
+::  graft operators. Tracked in .dev/FUTURE_WORK.md.
+::
+++  registered-cap  ^~((mul 10.000 1.000))
+::
 ::  +$graft-payload: generic settlement payload
 ::
 ::  note: the settlement note header (id, hull, root, pending state)
@@ -124,6 +136,11 @@
     ?:  (~(has by registered.state) hull.cause)
       :_  state
       ~[[%vesl-error 'vesl-graft: hull already registered']]
+    ::  Guard: registered map capacity (H-02)
+    ::
+    ?:  (gte ~(wyt by registered.state) registered-cap)
+      :_  state
+      ~[[%vesl-error 'vesl-graft: registered map at capacity']]
     =/  new-reg  (~(put by registered.state) hull.cause root.cause)
     :_  state(registered new-reg)
     ~[[%vesl-registered hull.cause root.cause]]
