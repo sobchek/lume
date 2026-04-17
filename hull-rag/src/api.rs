@@ -62,16 +62,22 @@ fn slab_root(slab: &NounSlab) -> nockapp::Noun {
 ///
 /// Prevents cross-instance replay: two hull instances processing the same
 /// documents can't produce colliding note/hull/root tuples.
+///
+/// AUDIT 2026-04-17 H-05: fails closed on `getrandom::fill` error. The
+/// prior silent fallback (copy timestamp bytes into nonce) reduced the
+/// note-id's entropy to `H(query || timestamp)` — both values are
+/// attacker-observable over an open network. Combined with H-03's
+/// pre-commit race, that was a zero-secret DoS. Panic is correct here:
+/// a production host without `/dev/urandom` is misconfigured and
+/// should not keep serving settlement requests.
 fn derive_note_id(query: &str) -> u64 {
     let timestamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
         .as_nanos();
     let mut nonce = [0u8; 16];
-    // getrandom fills with OS entropy. If unavailable, fall back to timestamp.
-    if getrandom::fill(&mut nonce).is_err() {
-        nonce[..8].copy_from_slice(&timestamp.to_le_bytes()[..8]);
-    }
+    getrandom::fill(&mut nonce)
+        .expect("getrandom::fill failed — OS entropy unavailable (refusing to derive note-id from attacker-observable state)");
     let mut content = Vec::with_capacity(query.len() + 16 + 16);
     content.extend_from_slice(query.as_bytes());
     content.extend_from_slice(&(timestamp as u64).to_le_bytes());
