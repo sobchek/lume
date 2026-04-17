@@ -33,7 +33,7 @@
 ::
 =/  st=vesl-state  new-state
 ::
-=/  peek-unreg  (vesl-peek st /registered/7)
+=/  peek-unreg  (vesl-peek st /vesl-registered/7)
 ?>  ?=(^ peek-unreg)
 ?>  ?=(^ u.peek-unreg)
 ?>  =(%.n ;;(? u.u.peek-unreg))
@@ -53,7 +53,7 @@
 ::
 ::  Peek confirms registration
 ::
-=/  peek-reg  (vesl-peek st /registered/7)
+=/  peek-reg  (vesl-peek st /vesl-registered/7)
 ?>  ?=(^ peek-reg)
 ?>  ?=(^ u.peek-reg)
 ?>  =(%.y ;;(? u.u.peek-reg))
@@ -78,7 +78,7 @@
 ::
 ::  Peek confirms settlement
 ::
-=/  peek-settled  (vesl-peek st /settled/1)
+=/  peek-settled  (vesl-peek st /vesl-settled/1)
 ?>  ?=(^ peek-settled)
 ?>  ?=(^ u.peek-settled)
 ?>  =(%.y ;;(? u.u.peek-settled))

@@ -58,7 +58,7 @@
 ::
 ::  Peek for unregistered hull -> %.n
 ::
-=/  peek-unreg  (vesl-peek st /registered/7)
+=/  peek-unreg  (vesl-peek st /vesl-registered/7)
 ?>  ?=(^ peek-unreg)
 ?>  ?=(^ u.peek-unreg)
 ?>  =(%.n ;;(? u.u.peek-unreg))
@@ -80,14 +80,14 @@
 ::
 ::  Peek should now return %.y
 ::
-=/  peek-reg  (vesl-peek st /registered/7)
+=/  peek-reg  (vesl-peek st /vesl-registered/7)
 ?>  ?=(^ peek-reg)
 ?>  ?=(^ u.peek-reg)
 ?>  =(%.y ;;(? u.u.peek-reg))
 ::
 ::  Root peek should return the root
 ::
-=/  peek-root  (vesl-peek st /root/7)
+=/  peek-root  (vesl-peek st /vesl-root/7)
 ?>  ?=(^ peek-root)
 ?>  ?=(^ u.peek-root)
 ?>  =(`root ;;((unit @) u.u.peek-root))
@@ -107,7 +107,7 @@
 ::
 ::  State should be unchanged (no settlement)
 ::
-=/  peek-not-settled  (vesl-peek st /settled/42)
+=/  peek-not-settled  (vesl-peek st /vesl-settled/42)
 ?>  ?=(^ peek-not-settled)
 ?>  ?=(^ u.peek-not-settled)
 ?>  =(%.n ;;(? u.u.peek-not-settled))
@@ -131,7 +131,7 @@
 ::
 ::  Peek: note 42 should be settled
 ::
-=/  peek-settled  (vesl-peek st /settled/42)
+=/  peek-settled  (vesl-peek st /vesl-settled/42)
 ?>  ?=(^ peek-settled)
 ?>  ?=(^ u.peek-settled)
 ?>  =(%.y ;;(? u.u.peek-settled))

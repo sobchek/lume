@@ -122,7 +122,7 @@ In your `++peek` arm, fall through to `vesl-peek` for unrecognized paths:
   ==
 ```
 
-This gives you `/registered/<hull>`, `/settled/<note-id>`, and `/root/<hull>` for free.
+This gives you `/vesl-registered/<hull>`, `/vesl-settled/<note-id>`, and `/vesl-root/<hull>` for free.
 
 ## Step 7: Rust Side — Add Dependencies
 
@@ -378,11 +378,11 @@ settle path. Options:
 
 | Path | Returns |
 |------|---------|
-| `[%registered hull=@ ~]` | `%.y` / `%.n` — is this hull registered? |
-| `[%settled note-id=@ ~]`  | `%.y` / `%.n` — is this note-id in current OR prior epoch? |
-| `[%root hull=@ ~]`        | The Merkle root bound to this hull |
-| `[%epoch ~]`              | Current epoch number |
-| `[%settle-count ~]`       | Notes settled in current epoch |
+| `[%vesl-registered hull=@ ~]` | `%.y` / `%.n` — is this hull registered? |
+| `[%vesl-settled note-id=@ ~]`  | `%.y` / `%.n` — is this note-id in current OR prior epoch? |
+| `[%vesl-root hull=@ ~]`        | The Merkle root bound to this hull |
+| `[%vesl-epoch ~]`              | Current epoch number |
+| `[%settle-count ~]`            | Notes settled in current epoch |
 
 Any caller that can peek your state can see which hulls are registered,
 which notes settled, and the Merkle root bound to each hull. Public by

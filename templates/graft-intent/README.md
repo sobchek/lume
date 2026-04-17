@@ -25,7 +25,7 @@ Hash the data, compare to root. No manifest types, no `sur/vesl.hoon`, no `rag-l
 - `%vesl-register hull root` — register a Merkle root
 - `%vesl-verify payload` — verify data against root via hash gate
 - `%vesl-settle payload` — verify + settle (state transition + replay guard)
-- `/registered/<hull>`, `/root/<hull>`, `/settled/<note-id>`
+- `/vesl-registered/<hull>`, `/vesl-root/<hull>`, `/vesl-settled/<note-id>`
 
 ## The Custom Gate Pattern
 

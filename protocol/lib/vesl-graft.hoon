@@ -279,22 +279,22 @@
   |=  [state=vesl-state =path]
   ^-  (unit (unit *))
   ?+  path  ~
-    [%registered hull=@ ~]
+    [%vesl-registered hull=@ ~]
       =/  vid  +<.path
       ``(~(has by registered.state) vid)
     ::
-    [%settled note-id=@ ~]
+    [%vesl-settled note-id=@ ~]
       =/  nid  +<.path
       ::  Replay lookup must cover current + prior epoch.
       ::
       ?:  (~(has in settled.state) nid)  ``%.y
       ``(~(has in prior-settled.state) nid)
     ::
-    [%root hull=@ ~]
+    [%vesl-root hull=@ ~]
       =/  vid  +<.path
       ``(~(get by registered.state) vid)
     ::
-    [%epoch ~]  ``epoch.state
+    [%vesl-epoch ~]  ``epoch.state
     ::
     [%settle-count ~]  ``settle-count.state
   ==

@@ -11,7 +11,7 @@
 ::  Demonstrates:
 ::    - composing vesl-state into versioned-state
 ::    - delegating %vesl-* pokes to the Graft
-::    - delegating /registered and /root peeks to the Graft
+::    - delegating /vesl-registered and /vesl-root peeks to the Graft
 ::    - domain logic alongside verification logic
 ::
 ::  Compile: hoonc hoon/app/app.hoon $NOCK_HOME/hoon/
@@ -51,7 +51,7 @@
     old-state
   ::  +peek: query domain state or Vesl state
   ::    domain peeks: /note/<key>, /count
-  ::    graft peeks:  /registered/<hull>, /root/<hull>
+  ::    graft peeks:  /vesl-registered/<hull>, /vesl-root/<hull>
   ::
   ++  peek
     |=  =path

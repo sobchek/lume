@@ -22,8 +22,8 @@ The kernel has two layers:
 - `%vesl-register hull root` — register a Merkle root
 - `%vesl-verify payload` — verify a manifest against a registered root
 - `%vesl-settle payload` — verify + settle a note
-- `/registered/<hull>` — is this hull registered?
-- `/root/<hull>` — what root did this hull register?
+- `/vesl-registered/<hull>` — is this hull registered?
+- `/vesl-root/<hull>` — what root did this hull register?
 
 Zero verification code in the kernel. The `++poke` arm delegates `%vesl-*` causes to `vesl-poke` from `vesl-graft.hoon`. Three lines per cause.
 

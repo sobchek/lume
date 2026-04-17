@@ -19,7 +19,7 @@ Drop the hook — settle state on-chain.
 - `%vesl-register hull root` — register Merkle root
 - `%vesl-verify payload` — verify manifest (read-only)
 - `%vesl-settle payload` — verify + settle note (state transition + replay guard)
-- `/registered/<hull>`, `/root/<hull>`, `/settled/<note-id>`
+- `/vesl-registered/<hull>`, `/vesl-root/<hull>`, `/vesl-settled/<note-id>`
 
 The kernel's `%vesl-settle` handler:
 1. Cues the jammed settlement-payload
