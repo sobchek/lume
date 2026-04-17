@@ -3281,6 +3281,9 @@ dependencies = [
 [[package]]
 name = "kernels-settle"
 version = "0.1.0"
+dependencies = [
+ "sha2",
+]
 
 [[package]]
 name = "kqueue"
@@ -3724,6 +3727,7 @@ dependencies = [
  "nockchain-math",
  "serde",
  "subtle",
+ "tracing",
 ]
 
 [[package]]

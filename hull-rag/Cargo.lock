@@ -3323,6 +3323,9 @@ dependencies = [
 [[package]]
 name = "kernels-forge"
 version = "0.1.0"
+dependencies = [
+ "sha2",
+]
 
 [[package]]
 name = "kernels-open-wallet"
@@ -3331,6 +3334,9 @@ version = "0.1.0"
 [[package]]
 name = "kernels_vesl"
 version = "0.1.0"
+dependencies = [
+ "sha2",
+]
 
 [[package]]
 name = "kqueue"
@@ -3791,6 +3797,7 @@ dependencies = [
  "nockchain-math",
  "serde",
  "subtle",
+ "tracing",
 ]
 
 [[package]]
