@@ -333,4 +333,18 @@ The Graft is domain-agnostic. The examples above use a RAG verification gate (ca
 - [`graft-settle`](./graft-settle/) — Full settlement lifecycle with settlement poke
 - [`graft-intent`](./graft-intent/) — Custom hash gate, no RAG types
 
-~
+## Operator Notes
+
+Things the graft does not do for you — documented so nobody ships a
+broken deploy.
+
+### Untrusted callers can crash your poke (AUDIT M-02)
+
+`%vesl-settle` and `%vesl-verify` both run `cue` on the attacker-supplied
+`payload` atom before any guard. A malformed JAM crashes the kernel —
+you get a restart, no settlement, no state change, but every bad poke
+burns a Nock trace. If your graft sits behind a public HTTP endpoint,
+**rate-limit the poke path upstream**. The hull/HTTP layer is the right
+place for shape pre-validation. Do not rely on the graft to filter
+malformed pokes.
+
