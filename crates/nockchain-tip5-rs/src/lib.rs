@@ -128,6 +128,23 @@ pub fn tip5_to_atom_le_bytes(hash: &Tip5Hash) -> Vec<u8> {
 ///
 /// Mirrors Hoon's `+split-to-belts`: `(end [3 7] a)` / `(rsh [3 7] a)` loop.
 /// 7 bytes = 56 bits -> max value 2^56 - 1 ~ 7.2e16 < PRIME ~ 1.8e19.
+///
+/// # Trailing-zero normalization (AUDIT 2026-04-17 L-07)
+///
+/// Input bytes are interpreted as the little-endian representation of
+/// a Hoon atom (bignum). Trailing zero bytes are **stripped** via
+/// `rposition` before chunking — this matches Hoon's bignum form,
+/// where `0x05` and `0x05 00 00` are the same atomic value. Both
+/// sides of the cross-VM boundary (this function and the Hoon
+/// `split-to-belts` in `protocol/lib/vesl-merkle.hoon`) normalize
+/// identically, so the hash of `"x"` equals the hash of `"x\0"`
+/// equals the hash of `"x\0\0\0"`.
+///
+/// Callers that use byte-length as a distinguishing feature between
+/// logically-distinct payloads **will see hash collisions**. The
+/// canonical workaround is to encode length into the payload
+/// explicitly — e.g. prepend the length as a 4-byte field, or wrap
+/// the payload with a domain-separating prefix before hashing.
 fn atom_bytes_to_belts(bytes: &[u8]) -> Vec<Belt> {
     let len = bytes.iter().rposition(|&b| b != 0).map_or(0, |p| p + 1);
     if len == 0 {
