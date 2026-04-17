@@ -17,6 +17,7 @@ pub mod tx_builder;
 pub mod guard;
 pub mod mint;
 pub mod forge;
+pub mod graft_pokes;
 pub mod signing;
 pub mod types;
 
@@ -40,3 +41,9 @@ pub use mint::MintError;
 pub use settle::RagVerifier;
 pub use signing::{SigningError, derive_pubkey, pubkey_hash, sign, key_from_seed_phrase};
 pub use config::{SettlementMode, SettlementConfig, SettlementToml};
+
+// Graft poke builders — used by callers that compose grafted kernels via
+// `graft-inject` (in vesl-nockup). One submodule per primitive.
+pub use graft_pokes::settle::{
+    build_vesl_register_poke, build_vesl_settle_poke, build_vesl_verify_poke,
+};
