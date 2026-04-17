@@ -118,6 +118,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // --- Boot the settle kernel (no STARK prover jets) ---
     println!("[0] Booting settle kernel...");
+    // AUDIT 2026-04-17 M-07: verify the embedded JAM matches the
+    // build-time sha256 before handing it to nockapp. Panics on
+    // mismatch rather than booting a tampered kernel.
+    kernels_settle::verify_kernel();
     let app: NockApp = boot::setup(
         kernels_settle::KERNEL,
         cli.boot,

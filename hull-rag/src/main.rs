@@ -335,6 +335,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // --- Boot the NockApp kernel with STARK prover jets ---
     println!("[0] Booting Vesl NockApp kernel...");
+    // AUDIT 2026-04-17 M-07: verify the embedded JAM matches the
+    // build-time sha256 before handing it to nockapp.
+    kernels_vesl::verify_kernel();
     let stack_size = cli.boot.stack_size.clone();
     let prover_hot_state = zkvm_jetpack::hot::produce_prover_hot_state();
     let mut app: NockApp = boot::setup(
