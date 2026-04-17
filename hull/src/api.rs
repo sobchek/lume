@@ -72,8 +72,16 @@ pub fn load_note_counter(output_dir: &std::path::Path) -> u64 {
 }
 
 fn save_note_counter(output_dir: &std::path::Path, counter: u64) {
+    // AUDIT 2026-04-17 L-05: atomic write via tempfile + rename. Does
+    // not prevent read-modify-write races between two hull processes
+    // sharing `output_dir` (still a single-writer invariant by
+    // design), but eliminates torn writes if the process is killed
+    // mid-write or if two writers race by coincidence.
     let path = output_dir.join(NOTE_COUNTER_FILE);
-    let _ = std::fs::write(&path, counter.to_string());
+    let tmp = output_dir.join(format!("{NOTE_COUNTER_FILE}.{}.tmp", std::process::id()));
+    if std::fs::write(&tmp, counter.to_string()).is_ok() {
+        let _ = std::fs::rename(&tmp, &path);
+    }
 }
 
 // ---------------------------------------------------------------------------
