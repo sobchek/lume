@@ -54,7 +54,7 @@
 ::  TEST 1: Fresh state is empty
 ::  ============================================
 ::
-=/  st=vesl-state  [registered=*(map @ @) settled=*(set @)]
+=/  st=vesl-state  new-state
 ::
 ::  Peek for unregistered hull -> %.n
 ::

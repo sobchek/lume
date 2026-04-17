@@ -31,7 +31,7 @@
 ::  TEST 1: Fresh state is empty
 ::  ============================================
 ::
-=/  st=vesl-state  [registered=*(map @ @) settled=*(set @)]
+=/  st=vesl-state  new-state
 ::
 =/  peek-unreg  (vesl-peek st /registered/7)
 ?>  ?=(^ peek-unreg)

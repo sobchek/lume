@@ -72,7 +72,7 @@ Add `vesl-state` to your `versioned-state`. It tracks which roots are registered
 ```hoon
 +$  versioned-state
   $:  %v1
-      vesl=vesl-state          ::  [registered=(map @ @) settled=(set @)]
+      vesl=vesl-state          ::  [epoch registered settled settle-count prior-settled]
       ::  ...your state fields below...
       items=(map @t @)
   ==

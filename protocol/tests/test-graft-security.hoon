@@ -65,7 +65,7 @@
 ::
 ::  Register hull=7 with root-a
 ::
-=/  st=vesl-state  [registered=*(map @ @) settled=*(set @)]
+=/  st=vesl-state  new-state
 =/  reg-result  (vesl-poke st [%vesl-register hull=7 root=root-a] rag-gate)
 =/  st  +.reg-result
 ::
@@ -139,7 +139,7 @@
 ::
 ::  Fresh state — simulate the full V-001 attack
 ::
-=/  st2=vesl-state  [registered=*(map @ @) settled=*(set @)]
+=/  st2=vesl-state  new-state
 ::
 ::  Step 1: Legitimate registration
 ::
