@@ -173,8 +173,16 @@ pub fn hash_pair(l: &Tip5Hash, r: &Tip5Hash) -> Tip5Hash {
 ///   `side=true`  -> sibling is LEFT  -> `hash_pair(sibling, current)`
 ///   `side=false` -> sibling is RIGHT -> `hash_pair(current, sibling)`
 pub fn verify_proof(leaf_data: &[u8], proof: &[ProofNode], expected_root: &Tip5Hash) -> bool {
-    // Depth guard: match Hoon's 64-node limit
+    // Depth guard: match Hoon's 64-node limit.
+    // AUDIT 2026-04-17 L-01: a silent `false` return here is
+    // indistinguishable from "wrong proof" at the caller. Emit a warn
+    // so oversize proofs surface in logs instead of looking like
+    // generic verification failures.
     if proof.len() > 64 {
+        tracing::warn!(
+            proof_depth = proof.len(),
+            "verify_proof: proof exceeds 64-node cap (matches Hoon's verify-chunk), rejecting"
+        );
         return false;
     }
 
