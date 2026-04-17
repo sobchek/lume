@@ -206,6 +206,25 @@ pub fn key_from_seed_phrase(phrase: &str) -> Result<[Belt; 8], SigningError> {
 /// the value but can't guarantee the allocator zeroes freed heap blocks.
 /// Still better than the raw UBig pattern — at minimum prevents the value
 /// from being readable after the wrapper is dropped.
+///
+/// # AUDIT 2026-04-17 L-06 — zeroize limitation
+///
+/// `self.0 = UBig::from(0u64)` clears the *logical* value, but:
+///
+/// - UBig's internal heap buffer is freed without zeroing (the
+///   allocator may leave old key bits in memory that a later heap
+///   allocation could read).
+/// - If `UBig` has grown beyond its internal-small-int representation
+///   and realloc'd during construction, the realloc source buffer is
+///   also freed without zeroing.
+/// - Stack-resident temporaries (e.g., during `trunc_g_order`) are
+///   outside this wrapper and get cleaned up only by ordinary stack
+///   reuse.
+///
+/// Production hardening would either store secrets in
+/// `zeroize::Zeroizing<Vec<u8>>` (requires upstream UBig Zeroize
+/// support) or swap to a constant-time bigint crate with explicit
+/// zeroization. Until then, this wrapper is a nudge, not a guarantee.
 struct SecretScalar(UBig);
 
 impl Drop for SecretScalar {
