@@ -86,6 +86,25 @@ pub fn pubkey_hash(pk: &SchnorrPubkey) -> Hash {
 /// each stored as 8 x 32-bit Belt chunks.
 ///
 /// Compatible with Hoon's `sign:affine:belt-schnorr:cheetah`.
+///
+/// # Deterministic nonce — contract (AUDIT 2026-04-17 M-06)
+///
+/// The nonce is derived as
+/// `trunc_g_order(hash_varlen([pk.x, pk.y, message, sk]))`. This is
+/// deterministic: the same `(sk, message)` pair always produces the
+/// same nonce, therefore the same signature. Matches the Hoon spec
+/// (`sign:affine:belt-schnorr:cheetah`, three.hoon lines 1628-1661).
+///
+/// Security is only preserved if every call for a given key uses a
+/// **distinct** `message` value. Re-signing the same logical document
+/// is safe (same signature = no new entropy leaked). Signing two
+/// *different* logical documents that happen to hash to the same
+/// `message` is not — and any caller that lets the message be chosen
+/// (or reused) adversarially breaks the signature scheme.
+///
+/// Callers who don't fully control message entropy must include a
+/// fresh nonce / counter in the message body before digesting. The
+/// signing layer does not add randomness on behalf of the caller.
 pub fn sign(sk: &[Belt; 8], message: &[Belt; 5]) -> Result<SchnorrSignature, SigningError> {
     let sk_big = belts8_to_secret(sk);
     if *sk_big == UBig::from(0u64) || *sk_big >= *G_ORDER {
