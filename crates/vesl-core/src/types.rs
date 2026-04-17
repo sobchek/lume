@@ -97,7 +97,14 @@ pub struct ForgePayload {
 
 /// Domain verification trait. Implement for your computation type.
 /// `RagVerifier` is the built-in implementation for RAG manifests.
+///
+/// AUDIT 2026-04-17 H-03: `verify` takes `note_id` so domain
+/// verifiers can enforce `note_id == deterministic_fn(data)`, closing
+/// the pre-commit race where an attacker predicts a victim's note-id
+/// and settles a different manifest under it first. Implementations
+/// that don't care about note-id binding can simply ignore the
+/// argument.
 pub trait IntentVerifier: Send + Sync {
-    fn verify(&self, data: &[u8], expected_root: &Tip5Hash) -> bool;
+    fn verify(&self, note_id: u64, data: &[u8], expected_root: &Tip5Hash) -> bool;
     fn build_settle_poke(&self, payload: &GraftPayload) -> anyhow::Result<NounSlab>;
 }

@@ -41,7 +41,7 @@ pub fn field_to_leaf_bytes(field: &Field) -> Vec<u8> {
 pub struct FieldVerifier;
 
 impl IntentVerifier for FieldVerifier {
-    fn verify(&self, data: &[u8], expected_root: &Tip5Hash) -> bool {
+    fn verify(&self, _note_id: u64, data: &[u8], expected_root: &Tip5Hash) -> bool {
         let fields: Vec<FieldWithProof> = match serde_json::from_slice(data) {
             Ok(f) => f,
             Err(_) => return false,
@@ -105,7 +105,7 @@ mod tests {
 
         let data = serde_json::to_vec(&fields_with_proof).unwrap();
         let verifier = FieldVerifier;
-        assert!(verifier.verify(&data, &root), "valid fields should verify");
+        assert!(verifier.verify(1, &data, &root), "valid fields should verify");
         println!("root: {}", format_tip5(&root));
     }
 
@@ -129,19 +129,19 @@ mod tests {
 
         let data = serde_json::to_vec(&tampered).unwrap();
         let verifier = FieldVerifier;
-        assert!(!verifier.verify(&data, &root), "tampered field should fail");
+        assert!(!verifier.verify(1, &data, &root), "tampered field should fail");
     }
 
     #[test]
     fn field_verifier_empty_rejects() {
         let verifier = FieldVerifier;
         let data = serde_json::to_vec::<Vec<FieldWithProof>>(&vec![]).unwrap();
-        assert!(!verifier.verify(&data, &[0; 5]));
+        assert!(!verifier.verify(1, &data, &[0; 5]));
     }
 
     #[test]
     fn field_verifier_bad_json_rejects() {
         let verifier = FieldVerifier;
-        assert!(!verifier.verify(b"not json", &[0; 5]));
+        assert!(!verifier.verify(1, b"not json", &[0; 5]));
     }
 }

@@ -45,7 +45,7 @@ In your poke arm, delegate:
   %vesl-register
 =/  lc=vesl-cause  [%vesl-register hull.u.act root.u.act]
 =/  rag-gate=verify-gate
-  |=  [data=* expected-root=@]
+  |=  [note-id=@ data=* expected-root=@]
   ^-  ?
   =/  mani  ;;(manifest data)
   (verify-manifest mani expected-root)

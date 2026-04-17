@@ -90,7 +90,7 @@
         %vesl-register
       =/  lc=vesl-cause  [%vesl-register hull.u.act root.u.act]
       =/  rag-gate=verify-gate
-        |=  [data=* expected-root=@]
+        |=  [note-id=@ data=* expected-root=@]
         ^-  ?
         =/  mani  ;;(manifest data)
         (verify-manifest mani expected-root)
@@ -103,7 +103,7 @@
         %vesl-verify
       =/  lc=vesl-cause  [%vesl-verify payload.u.act]
       =/  rag-gate=verify-gate
-        |=  [data=* expected-root=@]
+        |=  [note-id=@ data=* expected-root=@]
         ^-  ?
         =/  mani  ;;(manifest data)
         (verify-manifest mani expected-root)
@@ -121,7 +121,7 @@
         %vesl-settle
       =/  lc=vesl-cause  [%vesl-settle payload.u.act]
       =/  rag-gate=verify-gate
-        |=  [data=* expected-root=@]
+        |=  [note-id=@ data=* expected-root=@]
         ^-  ?
         =/  mani  ;;(manifest data)
         (verify-manifest mani expected-root)

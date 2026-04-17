@@ -93,11 +93,19 @@
 ::
 ::  +$verify-gate: domain verification gate signature
 ::
-::  Takes opaque data + expected root, returns loobean.
+::  Takes note-id + opaque data + expected root, returns loobean.
 ::  The gate casts data to its domain type (e.g., ;;(manifest data))
 ::  and performs domain-specific verification.
 ::
-+$  verify-gate  $-([data=* expected-root=@] ?)
+::  AUDIT 2026-04-17 H-03: note-id is now passed to the gate so
+::  domain verifiers can enforce `note-id == deterministic-fn(data)`,
+::  closing the pre-commit race where an attacker could predict a
+::  victim's note-id and settle a different manifest under it first.
+::  The graft layer does NOT enforce the binding itself — each
+::  domain gate decides what "note-id bound to data" means for it.
+::  Gates that don't care can simply ignore the note-id argument.
+::
++$  verify-gate  $-([note-id=@ data=* expected-root=@] ?)
 ::
 ::  +$vesl-effect: effects the Graft can produce
 ::
@@ -181,7 +189,7 @@
       ~[[%vesl-error 'vesl-graft: note already settled (prior epoch)']]
     ::  Verify via caller's gate — crash on failure
     ::
-    ?>  (veri data.args expected-root.args)
+    ?>  (veri id.note.args data.args expected-root.args)
     ::  Apply settlement. Rotate iff the current epoch is already at cap.
     ::
     =/  at-cap=?  (gte settle-count.state epoch-cap)
@@ -223,7 +231,7 @@
       ~[[%vesl-verified %.n]]
     ::  Verify via caller's gate — soft failure (no crash)
     ::
-    =/  ok=?  (veri data.args expected-root.args)
+    =/  ok=?  (veri id.note.args data.args expected-root.args)
     :_  state
     ~[[%vesl-verified ok]]
     ::

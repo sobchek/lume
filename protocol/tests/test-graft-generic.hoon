@@ -17,7 +17,7 @@
 ::  data is cast to @ (bare atom), hashed, compared.
 ::
 =/  hash-gate=verify-gate
-  |=  [data=* expected-root=@]
+  |=  [note-id=@ data=* expected-root=@]
   ^-  ?
   =/  dat=@  ;;(@ data)
   =(expected-root (hash-leaf dat))
@@ -149,7 +149,7 @@
 ::  Use a failing gate that always returns %.n
 ::
 =/  fail-gate=verify-gate
-  |=  [data=* expected-root=@]
+  |=  [note-id=@ data=* expected-root=@]
   ^-  ?
   %.n
 ::

@@ -33,14 +33,14 @@ Define your gate inline where you delegate pokes:
 
 ```hoon
 =/  hash-gate=verify-gate
-  |=  [data=* expected-root=@]
+  |=  [note-id=@ data=* expected-root=@]
   ^-  ?
   =((hash-leaf ;;(@ data)) expected-root)
 =/  [efx=(list vesl-effect) new-vesl=vesl-state]
   (vesl-poke vesl.state lc hash-gate)
 ```
 
-The gate signature is `$-([data=* expected-root=@] ?)`. Cast `data` to your domain type, verify however you want, return a loobean.
+The gate signature is `$-([note-id=@ data=* expected-root=@] ?)`. Cast `data` to your domain type, verify however you want, return a loobean. Bind `note-id` into the data if you want pre-commit protection (see `.dev/AUDIT_REPORT.md` H-03).
 
 ## Build & Run
 
@@ -71,7 +71,7 @@ src/main.rs             — Rust driver with Mint commitment demo
 The gate type is `verify-gate`:
 
 ```hoon
-+$  verify-gate  $-([data=* expected-root=@] ?)
++$  verify-gate  $-([note-id=@ data=* expected-root=@] ?)
 ```
 
 `data` is opaque `*`. Cast it to whatever your domain needs:

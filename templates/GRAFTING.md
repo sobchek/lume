@@ -97,7 +97,7 @@ In your `++poke` arm, delegate Vesl causes to `vesl-poke`. Define your verificat
   %vesl-register
 =/  lc=vesl-cause  [%vesl-register hull.u.act root.u.act]
 =/  rag-gate=verify-gate
-  |=  [data=* expected-root=@]
+  |=  [note-id=@ data=* expected-root=@]
   ^-  ?
   =/  mani  ;;(manifest data)
   (verify-manifest mani expected-root)
@@ -107,7 +107,7 @@ In your `++poke` arm, delegate Vesl causes to `vesl-poke`. Define your verificat
 ^-  (list effect)  efx
 ```
 
-Same pattern for `%vesl-verify` and `%vesl-settle`. Copy-paste, change the cause tag. The gate can be any function matching `$-([data=* expected-root=@] ?)` — see [Custom Gates](#custom-gates--beyond-rag).
+Same pattern for `%vesl-verify` and `%vesl-settle`. Copy-paste, change the cause tag. The gate can be any function matching `$-([note-id=@ data=* expected-root=@] ?)` — see [Custom Gates](#custom-gates--beyond-rag).
 
 ## Step 6: Delegate Peeks
 
@@ -265,28 +265,28 @@ If you need settlement with replay protection: delegate `%vesl-settle` (Settle p
 The Graft is domain-agnostic. The examples above use a RAG verification gate (cast data to a manifest, verify Merkle proofs, check prompt reconstruction). That's one gate. The `verify-gate` type is:
 
 ```hoon
-+$  verify-gate  $-([data=* expected-root=@] ?)
++$  verify-gate  $-([note-id=@ data=* expected-root=@] ?)
 ```
 
 `data` is opaque `*`. Cast it to your domain type and return a loobean. Some examples:
 
 ```hoon
 ::  RAG manifest verification (graft-mint, graft-settle)
-|=  [data=* expected-root=@]
+|=  [note-id=@ data=* expected-root=@]
 =/  mani  ;;(manifest data)
 (verify-manifest mani expected-root)
 
 ::  Simple hash comparison (graft-intent)
-|=  [data=* expected-root=@]
+|=  [note-id=@ data=* expected-root=@]
 =((hash-leaf ;;(@ data)) expected-root)
 
 ::  Signature verification (your domain)
-|=  [data=* expected-root=@]
+|=  [note-id=@ data=* expected-root=@]
 =/  payload  ;;([sig=@ msg=@] data)
 (verify-sig sig.payload msg.payload expected-root)
 
 ::  Always-true gate (testing)
-|=  [data=* expected-root=@]
+|=  [note-id=@ data=* expected-root=@]
 %.y
 ```
 
@@ -300,7 +300,7 @@ The Graft is domain-agnostic. The examples above use a RAG verification gate (ca
   %vesl-settle
 =/  lc=vesl-cause  [%vesl-settle payload.u.act]
 =/  my-gate=verify-gate
-  |=  [data=* expected-root=@]
+  |=  [note-id=@ data=* expected-root=@]
   ^-  ?
   :: ...your verification logic...
   %.y

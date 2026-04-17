@@ -54,7 +54,7 @@
 ::  RAG verification gate — wraps verify-manifest for vesl-poke
 ::
 =/  rag-gate=verify-gate
-  |=  [data=* expected-root=@]
+  |=  [note-id=@ data=* expected-root=@]
   ^-  ?
   =/  mani  ;;(manifest data)
   (verify-manifest mani expected-root)

@@ -104,7 +104,7 @@ fn rag_verifier_through_graft_payload() {
 
     let data = serde_json::to_vec(&manifest).unwrap();
     let verifier = RagVerifier;
-    assert!(vesl_core::IntentVerifier::verify(&verifier, &data, &root));
+    assert!(vesl_core::IntentVerifier::verify(&verifier, 1, &data, &root));
 }
 
 #[tokio::test]

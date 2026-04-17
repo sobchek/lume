@@ -86,7 +86,7 @@
         %vesl-register
       =/  lc=vesl-cause  [%vesl-register hull.u.act root.u.act]
       =/  hash-gate=verify-gate
-        |=  [data=* expected-root=@]
+        |=  [note-id=@ data=* expected-root=@]
         ^-  ?
         =((hash-leaf ;;(@ data)) expected-root)
       =/  [efx=(list vesl-effect) new-vesl=vesl-state]
@@ -98,7 +98,7 @@
         %vesl-verify
       =/  lc=vesl-cause  [%vesl-verify payload.u.act]
       =/  hash-gate=verify-gate
-        |=  [data=* expected-root=@]
+        |=  [note-id=@ data=* expected-root=@]
         ^-  ?
         =((hash-leaf ;;(@ data)) expected-root)
       =/  [efx=(list vesl-effect) new-vesl=vesl-state]
@@ -110,7 +110,7 @@
         %vesl-settle
       =/  lc=vesl-cause  [%vesl-settle payload.u.act]
       =/  hash-gate=verify-gate
-        |=  [data=* expected-root=@]
+        |=  [note-id=@ data=* expected-root=@]
         ^-  ?
         =((hash-leaf ;;(@ data)) expected-root)
       =/  [efx=(list vesl-effect) new-vesl=vesl-state]
