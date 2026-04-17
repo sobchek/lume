@@ -49,3 +49,4 @@ pub use graft_pokes::settle::{
 };
 pub use graft_pokes::mint::build_mint_commit_poke;
 pub use graft_pokes::guard::{build_guard_register_poke, build_guard_check_poke};
+pub use graft_pokes::forge::build_forge_prove_poke;
