@@ -9,6 +9,13 @@
 ::  and an expected root, returns a loobean. RAG is one implementation.
 ::  Any computation type works. No domain-specific imports.
 ::
+::  Registration is one-shot per hull (AUDIT 2026-04-17 M-01). Once a
+::  hull-id is registered with a root, that mapping is immutable for
+::  the lifetime of the graft state — roots are treated as permanent
+::  commitments. Legitimate key rotation currently requires a fresh
+::  deployment. A signature-gated `%vesl-revoke` / `%vesl-rotate` cause
+::  is tracked as future work in .dev/FUTURE_WORK.md.
+::
 ::  Usage:
 ::    /+  *vesl-graft
 ::    /+  *rag-logic    :: for RAG gate (or your own domain logic)
