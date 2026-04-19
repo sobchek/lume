@@ -112,6 +112,11 @@
       ?.  =(expected-root.args (~(got by registered.state) hull.note.args))
         ~>  %slog.[3 'vesl: root mismatch']
         [~ state]
+      ::  Guard: note header root must match expected root (H-07)
+      ::
+      ?.  =(root.note.args expected-root.args)
+        ~>  %slog.[3 'vesl: note root does not match expected root']
+        [~ state]
       ::  Guard: reject duplicate note IDs (replay protection)
       ::
       ?:  (~(has in settled.state) id.note.args)
@@ -140,6 +145,11 @@
       ::
       ?.  =(expected-root.args (~(got by registered.state) hull.note.args))
         ~>  %slog.[3 'vesl: root mismatch']
+        [~ state]
+      ::  Guard: note header root must match expected root (H-07)
+      ::
+      ?.  =(root.note.args expected-root.args)
+        ~>  %slog.[3 'vesl: note root does not match expected root']
         [~ state]
       ::  Guard: reject duplicate note IDs (replay protection)
       ::
