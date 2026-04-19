@@ -130,7 +130,6 @@
   $%  [%settle-register hull=@ root=@]
       [%settle-note payload=@]
       [%settle-verify payload=@]
-      [%settle-rotate-epoch ~]
   ==
 ::
 ::  +settle-poke: dispatch a settle cause against settle state
@@ -249,25 +248,6 @@
     =/  ok=?  (veri id.note.args data.args expected-root.args)
     :_  state
     ~[[%settle-verified ok]]
-    ::
-    ::  %settle-rotate-epoch — force rotation now (admin-initiated)
-    ::    No-auth by design: anyone who can poke the graft can force
-    ::    rotation. Worst-case impact: truncates the lookback window
-    ::    earlier than the count-based trigger would. Replay protection
-    ::    within the new current + prior pair remains intact.
-    ::
-      %settle-rotate-epoch
-    =/  old-epoch  epoch.state
-    =/  new-epoch  +(old-epoch)
-    =/  rotated
-      %=  state
-        epoch          new-epoch
-        prior-settled  settled.state
-        settled        *(set @)
-        settle-count   0
-      ==
-    :_  rotated
-    ~[[%settle-epoch-rotated old-epoch new-epoch]]
   ==
 ::
 ::  +settle-peek: query settle state by path

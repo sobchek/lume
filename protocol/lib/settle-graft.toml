@@ -3,10 +3,6 @@
 # Gate signature is the post-H-03 [note-id=@ data=* expected-root=@]
 # form required by settle-graft.hoon's `verify-gate` type.
 #
-# Post-H-01 the cause union carries a `%settle-rotate-epoch` arm so
-# host kernels' `?-` over `-.u.act` is exhaustive; without it hoonc
-# aborts with `mint-lost` / `-lost %settle-rotate-epoch`.
-#
 # Renamed from vesl-graft.toml in Phase 12A — see .dev/00_PARAMETIZATION.md.
 
 [graft]
@@ -59,18 +55,6 @@ efx
 ::
   %settle-note
 =/  lc=settle-cause  [%settle-note payload.u.act]
-=/  hash-gate=verify-gate
-  |=  [note-id=@ data=* expected-root=@]
-  ^-  ?
-  =((hash-leaf ;;(@ data)) expected-root)
-=/  [efx=(list settle-effect) new-settle=settle-state]
-  (settle-poke settle.state lc hash-gate)
-:_  state(settle new-settle)
-^-  (list effect)
-efx
-::
-  %settle-rotate-epoch
-=/  lc=settle-cause  [%settle-rotate-epoch ~]
 =/  hash-gate=verify-gate
   |=  [note-id=@ data=* expected-root=@]
   ^-  ?

@@ -45,10 +45,20 @@
 ?>  ?=(^ second-efx)
 ?>  ?=(%settle-error -.i.second-efx)
 ::
-::  Force rotation and confirm the ID is still blocked via prior-settled.
+::  Construct the post-rotation state directly and confirm the ID is
+::  still blocked via prior-settled. (Auto-rotation fires only at
+::  epoch-cap=1M settles, impractical for a unit test. The manual
+::  %settle-rotate-epoch arm that used to force rotation here was
+::  removed as the AUDIT 2026-04-19 C-01 remediation — two
+::  consecutive rotate pokes would have emptied prior-settled.)
 ::
-=/  rotres  (settle-poke st2 [%settle-rotate-epoch ~] hash-gate)
-=/  st3  +.rotres
+=/  st3
+  %=  st2
+    epoch          +(epoch.st2)
+    prior-settled  settled.st2
+    settled        *(set @)
+    settle-count   0
+  ==
 ::
 ::  state invariants after rotation: epoch bumped, settled empty,
 ::  prior-settled retains the original note-id.
