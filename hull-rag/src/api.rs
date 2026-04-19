@@ -89,6 +89,23 @@ fn derive_note_id(query: &str) -> u64 {
     if id == 0 { digest[1] | 1 } else { id }
 }
 
+/// Return at most `chars` characters from the start of `s`, splitting
+/// on a UTF-8 character boundary.
+///
+/// AUDIT 2026-04-19 H-09: byte-range slicing (`&s[..n]`) panics when `n`
+/// falls mid-codepoint. Every handler preview path touched user input
+/// where that was reachable — a query of `"中".repeat(40)` crashes the
+/// task. Use this helper anywhere a preview truncation length is in
+/// characters, not bytes.
+pub fn char_safe_prefix(s: &str, chars: usize) -> &str {
+    let end = s
+        .char_indices()
+        .nth(chars)
+        .map(|(i, _)| i)
+        .unwrap_or(s.len());
+    &s[..end]
+}
+
 /// Hash a retrieval set for TOCTOU detection (C-003).
 ///
 /// Hashes chunk IDs + data bytes into a single tip5 digest.
@@ -594,7 +611,7 @@ async fn query_handler(
                     chunk_id: st.chunks[h.chunk_index].id,
                     score: h.score,
                     preview: if dat.len() > 80 {
-                        format!("{}...", &dat[..80])
+                        format!("{}...", char_safe_prefix(dat, 80))
                     } else {
                         dat.clone()
                     },
@@ -780,7 +797,7 @@ async fn query_handler(
 
     // Record in recent notes ring buffer
     let query_preview = if req.query.len() > 60 {
-        format!("{}...", &req.query[..60])
+        format!("{}...", char_safe_prefix(&req.query, 60))
     } else {
         req.query.clone()
     };
@@ -927,7 +944,7 @@ async fn prove_handler(
                     chunk_id: st.chunks[h.chunk_index].id,
                     score: h.score,
                     preview: if dat.len() > 80 {
-                        format!("{}...", &dat[..80])
+                        format!("{}...", char_safe_prefix(dat, 80))
                     } else {
                         dat.clone()
                     },
@@ -1289,7 +1306,7 @@ async fn prove_handler(
     // Record in recent notes ring buffer
     if settled {
         let query_preview = if req.query.len() > 60 {
-            format!("{}...", &req.query[..60])
+            format!("{}...", char_safe_prefix(&req.query, 60))
         } else {
             req.query.clone()
         };
@@ -1798,5 +1815,49 @@ mod tests {
             .unwrap();
 
         assert_eq!(resp.status(), StatusCode::PAYLOAD_TOO_LARGE);
+    }
+
+    // AUDIT 2026-04-19 H-09 regression: byte-slicing these previews panicked
+    // on multi-byte UTF-8 whose truncation point fell mid-codepoint. The
+    // helper now splits on char boundaries.
+    #[test]
+    fn char_safe_prefix_ascii_exact() {
+        assert_eq!(char_safe_prefix("hello world", 5), "hello");
+    }
+
+    #[test]
+    fn char_safe_prefix_shorter_than_cap() {
+        assert_eq!(char_safe_prefix("abc", 10), "abc");
+    }
+
+    #[test]
+    fn char_safe_prefix_three_byte_chars() {
+        // Forty 3-byte CJK chars = 120 bytes. Byte index 60 is mid-codepoint
+        // (byte 60 of 0xE4 0xB8 0xAD is the middle of one char) and would
+        // panic the old &s[..60] slice. We take 40 chars' worth of the
+        // 40-char input, which is all of it.
+        let s = "中".repeat(40);
+        let out = char_safe_prefix(&s, 40);
+        assert_eq!(out, s);
+        // Ask for fewer chars than the input has and assert boundary.
+        let out = char_safe_prefix(&s, 20);
+        assert_eq!(out.chars().count(), 20);
+        assert!(s.is_char_boundary(out.len()));
+    }
+
+    #[test]
+    fn char_safe_prefix_emoji_boundary() {
+        // A 78-byte ASCII run + 4-byte emoji + tail. Byte 80 is inside the
+        // emoji; the old slice would panic. Ask for 79 chars (ASCII run -
+        // one) to prove we stop cleanly before the multi-byte codepoint.
+        let s = format!("{}🔒{}", "a".repeat(78), "b".repeat(20));
+        assert!(s.len() > 80);
+        let out = char_safe_prefix(&s, 79);
+        assert_eq!(out.chars().count(), 79);
+        assert!(s.is_char_boundary(out.len()));
+        // Slicing at 80 chars consumes the emoji; make sure no panic.
+        let out = char_safe_prefix(&s, 80);
+        assert_eq!(out.chars().count(), 80);
+        assert!(s.is_char_boundary(out.len()));
     }
 }
