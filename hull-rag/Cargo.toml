@@ -65,3 +65,15 @@ dumbnet = ["dep:kernels-open-wallet"]
 # Gate wallet kernel integration tests behind a feature flag.
 # Boot takes ~5-10s for the 20MB wal.jam kernel.
 _wallet_kernel_tests = ["dep:kernels-open-wallet"]
+
+# Redirect vesl-core's git-dep nockchain back to the local monorepo path.
+# Keeps hull-rag building during Phase A (it gets deleted in Phase C).
+[patch."https://github.com/zorp-corp/nockchain.git"]
+nockvm = { path = "../../nockchain/crates/nockvm/rust/nockvm" }
+nockvm_macros = { path = "../../nockchain/crates/nockvm/rust/nockvm_macros" }
+nockapp = { path = "../../nockchain/crates/nockapp" }
+nockapp-grpc = { path = "../../nockchain/crates/nockapp-grpc" }
+nockchain-types = { path = "../../nockchain/crates/nockchain-types" }
+nockchain-math = { path = "../../nockchain/crates/nockchain-math" }
+noun-serde = { path = "../../nockchain/crates/noun-serde" }
+ibig = { path = "../../nockchain/crates/nockvm/rust/ibig" }
