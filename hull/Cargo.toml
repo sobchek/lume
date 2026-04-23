@@ -51,7 +51,7 @@ http-body-util = "0.1"
 # Redirect vesl-core's git-dep nockchain back to the local monorepo path so
 # hull + vesl-core resolve to a single nockchain source (no duplicate compilations
 # of nockvm/nockapp/etc). Only the names vesl-core actually git-deps need to appear.
-[patch."https://github.com/zorp-corp/nockchain.git"]
+[patch."https://github.com/nockchain/nockchain.git"]
 nockvm = { path = "../../nockchain/crates/nockvm/rust/nockvm" }
 nockvm_macros = { path = "../../nockchain/crates/nockvm/rust/nockvm_macros" }
 nockapp = { path = "../../nockchain/crates/nockapp" }

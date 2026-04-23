@@ -7,7 +7,7 @@ license = "MIT"
 
 [dependencies]
 # Nockchain monorepo crate (git-dep so downstream consumers can git-dep this crate)
-nockchain-math = { git = "https://github.com/zorp-corp/nockchain.git", rev = "a19f8017ef2f0ee38ea7c850a84189f817a9f93a" }
+nockchain-math = { git = "https://github.com/nockchain/nockchain.git", rev = "a19f8017ef2f0ee38ea7c850a84189f817a9f93a" }
 subtle = "2"
 tracing = "0.1"
 serde = { version = "1", features = ["derive"], optional = true }

@@ -7,11 +7,11 @@ license = "MIT"
 
 [dependencies]
 # Nockchain monorepo crates (git-dep so downstream consumers can git-dep this crate)
-nockvm = { git = "https://github.com/zorp-corp/nockchain.git", rev = "a19f8017ef2f0ee38ea7c850a84189f817a9f93a" }
-nockapp = { git = "https://github.com/zorp-corp/nockchain.git", rev = "a19f8017ef2f0ee38ea7c850a84189f817a9f93a", default-features = false }
-nockapp-grpc = { git = "https://github.com/zorp-corp/nockchain.git", rev = "a19f8017ef2f0ee38ea7c850a84189f817a9f93a" }
-nockchain-types = { git = "https://github.com/zorp-corp/nockchain.git", rev = "a19f8017ef2f0ee38ea7c850a84189f817a9f93a" }
-noun-serde = { git = "https://github.com/zorp-corp/nockchain.git", rev = "a19f8017ef2f0ee38ea7c850a84189f817a9f93a" }
+nockvm = { git = "https://github.com/nockchain/nockchain.git", rev = "a19f8017ef2f0ee38ea7c850a84189f817a9f93a" }
+nockapp = { git = "https://github.com/nockchain/nockchain.git", rev = "a19f8017ef2f0ee38ea7c850a84189f817a9f93a", default-features = false }
+nockapp-grpc = { git = "https://github.com/nockchain/nockchain.git", rev = "a19f8017ef2f0ee38ea7c850a84189f817a9f93a" }
+nockchain-types = { git = "https://github.com/nockchain/nockchain.git", rev = "a19f8017ef2f0ee38ea7c850a84189f817a9f93a" }
+noun-serde = { git = "https://github.com/nockchain/nockchain.git", rev = "a19f8017ef2f0ee38ea7c850a84189f817a9f93a" }
 
 # Vesl extracted crates
 nockchain-tip5-rs = { path = "../nockchain-tip5-rs" }

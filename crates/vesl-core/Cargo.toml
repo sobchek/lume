@@ -12,13 +12,13 @@ nock-noun-rs = { path = "../nock-noun-rs" }
 nockchain-client-rs = { path = "../nockchain-client-rs" }
 
 # Nockchain monorepo crates (git-dep so downstream consumers can git-dep vesl-core)
-nockapp = { git = "https://github.com/zorp-corp/nockchain.git", rev = "a19f8017ef2f0ee38ea7c850a84189f817a9f93a", default-features = false }
-nockvm = { git = "https://github.com/zorp-corp/nockchain.git", rev = "a19f8017ef2f0ee38ea7c850a84189f817a9f93a" }
-nockchain-math = { git = "https://github.com/zorp-corp/nockchain.git", rev = "a19f8017ef2f0ee38ea7c850a84189f817a9f93a" }
-nockchain-types = { git = "https://github.com/zorp-corp/nockchain.git", rev = "a19f8017ef2f0ee38ea7c850a84189f817a9f93a" }
-noun-serde = { git = "https://github.com/zorp-corp/nockchain.git", rev = "a19f8017ef2f0ee38ea7c850a84189f817a9f93a" }
-nockvm_macros = { git = "https://github.com/zorp-corp/nockchain.git", rev = "a19f8017ef2f0ee38ea7c850a84189f817a9f93a" }
-ibig = { git = "https://github.com/zorp-corp/nockchain.git", rev = "a19f8017ef2f0ee38ea7c850a84189f817a9f93a" }
+nockapp = { git = "https://github.com/nockchain/nockchain.git", rev = "a19f8017ef2f0ee38ea7c850a84189f817a9f93a", default-features = false }
+nockvm = { git = "https://github.com/nockchain/nockchain.git", rev = "a19f8017ef2f0ee38ea7c850a84189f817a9f93a" }
+nockchain-math = { git = "https://github.com/nockchain/nockchain.git", rev = "a19f8017ef2f0ee38ea7c850a84189f817a9f93a" }
+nockchain-types = { git = "https://github.com/nockchain/nockchain.git", rev = "a19f8017ef2f0ee38ea7c850a84189f817a9f93a" }
+noun-serde = { git = "https://github.com/nockchain/nockchain.git", rev = "a19f8017ef2f0ee38ea7c850a84189f817a9f93a" }
+nockvm_macros = { git = "https://github.com/nockchain/nockchain.git", rev = "a19f8017ef2f0ee38ea7c850a84189f817a9f93a" }
+ibig = { git = "https://github.com/nockchain/nockchain.git", rev = "a19f8017ef2f0ee38ea7c850a84189f817a9f93a" }
 
 # Standard deps
 anyhow = "1.0"
