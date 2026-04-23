@@ -18,8 +18,7 @@ hoonc compiler drift all landed without review. The pin fixes that.
 1. Pick a commit on `zorp-corp/nockchain` `main` that you want to
    adopt.
 2. Update this file.
-3. Update the matching comment in `hull/Cargo.toml` and
-   `hull-rag/Cargo.toml` ("Nockchain monorepo pin: ...").
+3. Update the matching comment in `hull/Cargo.toml` ("Nockchain monorepo pin: ...").
 4. Rebuild the local container with
    `docker build --build-arg NOCKCHAIN_COMMIT=$(cat docker/NOCKCHAIN_COMMIT) ...`
 5. Run the test matrix before merging.

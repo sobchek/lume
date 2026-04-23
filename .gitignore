@@ -1,6 +1,5 @@
 # Build artifacts
 hull/target/
-hull-rag/target/
 kernels/*/target/
 kernels/*/Cargo.lock
 templates/*/target/
@@ -9,8 +8,7 @@ out.jam
 *.jam.bak
 
 # Runtime state
-.fakenet/
-hull-rag/.data.vesl/
+hull/.data.vesl/
 *.pid
 
 # Internal
