@@ -40,6 +40,17 @@
   |=  [=proof override=(unit (list term)) eny=@ s=* f=*]
   (verify:verifier proof override eny s f)
 ::
+::  +verify-raw: debug variant of +verify that does NOT swallow
+::  verify-inner crashes with `mule`. Internal `?>` failures bubble
+::  up as kernel crash traces so app integrators can see which
+::  assertion rejected a proof. See `vesl-stark-verifier.hoon` for
+::  details — the `softed-constraints` injection is identical to
+::  `+verify`.
+::
+++  verify-raw
+  |=  [=proof override=(unit (list term)) eny=@ s=* f=*]
+  (verify-raw:verifier proof override eny s f)
+::
 ::  +verify-structure: structural + re-execution validation
 ::
 ::  Re-executes [subject formula] and compares product against

@@ -33,6 +33,38 @@
   %-  ~(. verify test-mode)
   [proof override verifier-eny s f]
 ::
+::  +verify-raw: same shape as +verify but does NOT swallow
+::  `verify-inner` assert crashes via `mule`. Any `?>` failure inside
+::  verify-inner (size mismatch, based-noun, linking-checks,
+::  composition-eval, DEEP codeword, merkle proofs...) bubbles up as
+::  a kernel crash trace so callers can see exactly which check
+::  failed. `+verify` returns `%.n` in all those cases with no detail.
+::
+::  Intended as a debugging aid for app-level integrators whose
+::  prover/verifier pair is failing the composition-poly check without
+::  an obvious cause. NOT safe to expose to untrusted input in
+::  production — a malicious proof will crash the kernel instead of
+::  producing a clean rejection.
+::
+++  verify-raw
+  |=  [=proof override=(unit (list term)) verifier-eny=@ s=* f=*]
+  ^-  ?
+  =/  nc=_nock-common-v0-v1
+    ?-  version.proof
+      %0  nock-common-v0-v1
+      %1  nock-common-v0-v1
+      %2  nock-common-v2
+    ==
+  =/  pr=preprocess-data
+    ?-  version.proof
+      %0  p.pre-0-1.prep.stark-config
+      %1  p.pre-0-1.prep.stark-config
+      %2  p.pre-2.prep.stark-config
+    ==
+  =/  inner  ~(verify-inner verify-door [nc pr])
+  =+  (inner proof override verifier-eny %.n s f)
+  %.y
+::
 ::  +verify-settlement: STARK verify + root/hull binding
 ::
 ++  verify-settlement
@@ -536,9 +568,9 @@
     ^-  ?
     =/  args  [proof override verifier-eny test-mode s f]
     =/  result  (mule |.((verify-inner args)))
-    ?.  -.result
+    ?.  ?=(%& -.result)
       %.n
-    =/  vr=verify-result  +.result
+    =/  vr=verify-result  p.result
     =/  root-digest=noun-digest:tip5  (atom-to-digest:tip5 expected-root)
     =/  hull-digest=noun-digest:tip5  (atom-to-digest:tip5 expected-hull)
     ?&  =(commitment.vr root-digest)
