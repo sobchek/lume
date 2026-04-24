@@ -568,13 +568,6 @@
     ^-  ?
     =/  args  [proof override verifier-eny test-mode s f]
     =/  result  (mule |.((verify-inner args)))
-    ::  `?.  -.result` does not narrow the `each` union: the two
-    ::  branches share the `p=` face but bind different types, so
-    ::  hoonc can't infer which type `+.result` has on the success
-    ::  side. `?=(%& -.result)` narrows cleanly and lets us use the
-    ::  `p.result` face to pull the `verify-result`. Equivalent
-    ::  semantics, compiles on newer hoonc.
-    ::
     ?.  ?=(%& -.result)
       %.n
     =/  vr=verify-result  p.result
